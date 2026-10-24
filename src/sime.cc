@@ -215,7 +215,14 @@ void Sime::ComputeEdgePenalties(std::vector<Node>& net,
                 if (full_cover) {
                     en_pen = short_input
                         ? EnglishPenaltyShort : EnglishPenalty;
-                } else if (edge.end - edge.start <= EnglishShortEdgeLen) {
+                } else if (std::count_if(
+                               input.begin() + edge.start,
+                               input.begin() + edge.end,
+                               [](unsigned char c) {
+                                   return (c >= 'a' && c <= 'z')
+                                       || (c >= 'A' && c <= 'Z');
+                               }) <= static_cast<std::ptrdiff_t>(
+                                         EnglishShortEdgeLen)) {
                     en_pen = EnglishPenaltyShort;
                 } else {
                     en_pen = EnglishPenaltyMixed;
