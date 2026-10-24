@@ -1,3 +1,4 @@
+// Modified by the weave-ime project (2026): search constants EnglishPenalty, EnglishPenaltyShort, BeamSize are macro-backed (SIME_WEAVE_*).
 #pragma once
 
 #include "common.h"
@@ -11,6 +12,17 @@
 #include <string>
 #include <string_view>
 #include <vector>
+
+// weave-ime tunables; defaults equal the upstream values.
+#ifndef SIME_WEAVE_EN_PENALTY
+#define SIME_WEAVE_EN_PENALTY 2.5
+#endif
+#ifndef SIME_WEAVE_EN_PENALTY_SHORT
+#define SIME_WEAVE_EN_PENALTY_SHORT 8.0
+#endif
+#ifndef SIME_WEAVE_BEAM_SIZE
+#define SIME_WEAVE_BEAM_SIZE 20
+#endif
 
 namespace sime {
 
@@ -128,7 +140,7 @@ private:
 
     // Search parameters
     static constexpr std::size_t NodeSize = 60;
-    static constexpr std::size_t BeamSize = 20;
+    static constexpr std::size_t BeamSize = SIME_WEAVE_BEAM_SIZE;
     static constexpr float_t DistancePenalty = 1.8;
     // Flat per-edge penalty for expansion edges (abbreviations / tail
     // completions). A single value — not multiplied by syllable mismatch
@@ -143,13 +155,13 @@ private:
     // Flat penalty for English edges so Chinese full-pinyin matches rank
     // higher in beam search and Layer 2, while common English words
     // (iphone, hello) still surface when there's no strong Chinese rival.
-    static constexpr float_t EnglishPenalty = 2.5;
+    static constexpr float_t EnglishPenalty = SIME_WEAVE_EN_PENALTY;
     // Short-input English penalty: short inputs (≤4 letters/digits) where
     // an English exact word coincidentally spell-matches the input
     // (e.g. "nm" / "us" / "be") need a stronger nudge so CN 简拼
     // candidates can win — the LM's <eos>|english=0 transition gives
     // English an unfair tail-cost edge in beam scoring otherwise.
-    static constexpr float_t EnglishPenaltyShort = 8.0;
+    static constexpr float_t EnglishPenaltyShort = SIME_WEAVE_EN_PENALTY_SHORT;
 
     // Lattice building
     void InitNet(std::string_view input,
