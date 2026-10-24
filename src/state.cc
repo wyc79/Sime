@@ -1,7 +1,12 @@
+// Modified by the weave-ime project (2026): NetStates::Insert gains SIME_WEAVE_BEAM_EXACT (bucket keys and state count kept exact, so eviction removes the globally worst state), SIME_WEAVE_BEAM_CHECK and BeamInvariantHolds().
 #include "state.h"
 
 #include <algorithm>
 #include <limits>
+#if SIME_WEAVE_BEAM_CHECK
+#include <cstdio>
+#include <cstdlib>
+#endif
 
 namespace sime {
 
@@ -74,11 +79,33 @@ void NetStates::Insert(const State& state) {
         PushScoreHeap(state.score, &emp_it->second);
     } else {
         TopStates& bucket = it->second;
+#if SIME_WEAVE_BEAM_EXACT
+        const std::size_t before = bucket.Size();
+#endif
         inserted = bucket.Push(state);
+#if SIME_WEAVE_BEAM_EXACT
+        // Push may raise the bucket's worst (room left) or lower it (a full
+        // bucket replaced its worst): re-key and sift in that direction.
+        if (inserted) {
+            const std::size_t i = bucket.heap_idx;
+            const float_t old_key = top_score_[i].first;
+            top_score_[i].first = bucket.Top().score;
+            if (old_key < top_score_[i].first) {
+                AdjustUp(i);
+            } else {
+                AdjustDown(i);
+            }
+        }
+        // A full bucket replaced its worst state: the column did not grow.
+        // (Upstream counts it as an insert, so state_size_ drifts above the
+        // real count and the loop below evicts states the column has room for.)
+        inserted = inserted && bucket.Size() > before;
+#else
         if (bucket.heap_idx < top_score_.size() &&
             top_score_[bucket.heap_idx].second == &bucket) {
             AdjustDown(bucket.heap_idx);
         }
+#endif
     }
 
     if (inserted) {
@@ -98,6 +125,28 @@ void NetStates::Insert(const State& state) {
         }
         --state_size_;
     }
+#if SIME_WEAVE_BEAM_CHECK
+    if (!BeamInvariantHolds()) {
+        std::fputs("SIME_WEAVE_BEAM_CHECK: NetStates invariant broken after Insert\n", stderr);
+        std::abort();
+    }
+#endif
+}
+
+bool NetStates::BeamInvariantHolds() const {
+    if (top_score_.size() != pos_map_.size()) return false;
+    std::size_t total = 0;
+    for (std::size_t i = 0; i < top_score_.size(); ++i) {
+        if (i > 0 && top_score_[(i - 1) / 2].first < top_score_[i].first) return false;
+        const TopStates* b = top_score_[i].second;
+        if (b->Size() == 0 || b->heap_idx != i || top_score_[i].first != b->Top().score) {
+            return false;
+        }
+        auto it = pos_map_.find(b->pos);
+        if (it == pos_map_.end() || &it->second != b) return false;
+        total += b->Size();
+    }
+    return total == state_size_ && state_size_ <= BeamSize;
 }
 
 void NetStates::PushScoreHeap(float_t score, TopStates* bucket) {
@@ -130,6 +179,9 @@ void NetStates::AdjustUp(std::size_t node) {
         if (top_score_[parent].first < top_score_[node].first) {
             std::swap(top_score_[parent], top_score_[node]);
             RefreshTopIndex(parent);
+#if SIME_WEAVE_BEAM_EXACT
+            RefreshTopIndex(node);
+#endif
             node = parent;
         } else {
             break;
@@ -155,6 +207,9 @@ void NetStates::AdjustDown(std::size_t node) {
         }
         std::swap(top_score_[node], top_score_[child]);
         RefreshTopIndex(child);
+#if SIME_WEAVE_BEAM_EXACT
+        RefreshTopIndex(node);
+#endif
         node = child;
         left = node * 2 + 1;
     }

@@ -1,3 +1,4 @@
+// Modified by the weave-ime project (2026): adds SIME_WEAVE_BEAM_EXACT (exact column eviction), SIME_WEAVE_COLUMN_BEAM_SIZE (column state cap, default 48) and the SIME_WEAVE_BEAM_CHECK invariant check.
 #pragma once
 
 #include "common.h"
@@ -7,6 +8,32 @@
 #include <map>
 #include <utility>
 #include <vector>
+
+// SIME_WEAVE_BEAM_EXACT=1: NetStates::Insert keeps each bucket's key in the
+// score-heap equal to the bucket's current worst score (and every bucket's
+// heap_idx current), and counts a push that replaces a full bucket's worst
+// state as no growth, so the column keeps its SIME_WEAVE_COLUMN_BEAM_SIZE best
+// states: eviction runs only when the column is over the cap and always
+// removes the globally worst state. 0 = upstream (a push into an existing
+// bucket leaves its key stale, so eviction can remove a better state from
+// another bucket; a replacement increments the state count, so the column
+// evicts states it has room for).
+#ifndef SIME_WEAVE_BEAM_EXACT
+#define SIME_WEAVE_BEAM_EXACT 0
+#endif
+// SIME_WEAVE_COLUMN_BEAM_SIZE: states kept per lattice column (NetStates'
+// cap across all LM-state buckets). Default 48 = upstream.
+#ifndef SIME_WEAVE_COLUMN_BEAM_SIZE
+#define SIME_WEAVE_COLUMN_BEAM_SIZE 48
+#endif
+// SIME_WEAVE_BEAM_CHECK=1 (debug builds only; needs SIME_WEAVE_BEAM_EXACT=1):
+// Insert aborts when BeamInvariantHolds() fails after it.
+#ifndef SIME_WEAVE_BEAM_CHECK
+#define SIME_WEAVE_BEAM_CHECK 0
+#endif
+#if SIME_WEAVE_BEAM_CHECK && !SIME_WEAVE_BEAM_EXACT
+#error "SIME_WEAVE_BEAM_CHECK=1 checks the exact-beam invariant; it needs SIME_WEAVE_BEAM_EXACT=1"
+#endif
 
 namespace sime {
 
@@ -71,6 +98,13 @@ public:
 
     std::vector<State> GetStates() const;
 
+    // Exact-beam invariant: top_score_ is a max-heap on its keys, holds one
+    // entry per bucket, each key equals its bucket's worst (largest) score,
+    // each bucket's heap_idx points at its entry, and state_size_ is the
+    // total state count, at most the column cap. Holds after every Insert when
+    // SIME_WEAVE_BEAM_EXACT=1; upstream keeps only the heap property.
+    bool BeamInvariantHolds() const;
+
 private:
     using PosMap = std::map<Scorer::Pos, TopStates>;
 
@@ -104,7 +138,7 @@ private:
     void AdjustDown(std::size_t node);
 
 private:
-    static constexpr std::size_t BeamSize = 48;
+    static constexpr std::size_t BeamSize = SIME_WEAVE_COLUMN_BEAM_SIZE;
 
     PosMap pos_map_;
     std::size_t state_size_ = 0;

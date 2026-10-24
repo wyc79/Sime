@@ -43,6 +43,16 @@ Modified files:
   raw-input bytes consumed (`NormalizeInput` records the raw offset of each
   normalised byte; an edge ending at the end of the normalised input reports
   `input.size()`, like Layer 1). Both default to 0 = upstream.
+- `include/state.h`, `src/state.cc`: `NetStates`' column cap (upstream 48) is
+  backed by `SIME_WEAVE_COLUMN_BEAM_SIZE` (default 48). With
+  `SIME_WEAVE_BEAM_EXACT=1`, `NetStates::Insert` re-keys a bucket in the
+  score-heap to its current worst score after every push (sifting up or down),
+  keeps every bucket's cached heap index current, and counts a push that
+  replaces a full bucket's worst state as no growth, so eviction runs only
+  over the cap and always removes the globally worst state; with the default 0
+  it is upstream's code. Adds `NetStates::BeamInvariantHolds()` and the
+  debug-only `SIME_WEAVE_BEAM_CHECK` (default 0; needs `SIME_WEAVE_BEAM_EXACT=1`),
+  which aborts when the invariant fails after an `Insert`.
 
 Added files:
 
