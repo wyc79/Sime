@@ -1,4 +1,4 @@
-// Modified by the weave-ime project (2026): ComputeEdgePenalties gains the SIME_WEAVE_PENALTY_RULE scoped English penalty; English DAT lookups gain SIME_WEAVE_CASE_FOLD; InitNet gains the SIME_WEAVE_LITERAL_EDGE literal-letters edge.
+// Modified by the weave-ime project (2026): ComputeEdgePenalties gains the SIME_WEAVE_PENALTY_RULE scoped English penalty; English DAT lookups gain SIME_WEAVE_CASE_FOLD; InitNet gains the SIME_WEAVE_LITERAL_EDGE literal-letters edge (with SIME_WEAVE_LITERAL_PER_LETTER and SIME_WEAVE_LITERAL_NONPINYIN).
 #include "sime.h"
 
 #include "cut.h"
@@ -254,7 +254,11 @@ void Sime::ComputeEdgePenalties(std::vector<Node>& net,
             // Literal edges pay only their own flat penalty (on top of the
             // LM's unknown-token cost added in Process).
             if (edge.id == LiteralToken) {
-                edge.penalty = LiteralPenalty;
+                // A literal span is letters only, so its length is its
+                // letter count.
+                edge.penalty = LiteralPenalty
+                    + LiteralPerLetter
+                        * static_cast<float_t>(edge.end - edge.start);
                 continue;
             }
 #endif
@@ -1206,17 +1210,39 @@ void Sime::InitNet(std::string_view input,
     // weave literal edges: one per span [s, e) of ASCII letters with
     // e - s >= LiteralMinLen, at every column s where a dictionary (pinyin
     // or English) edge starts. Text = the typed letters; cost = the LM's
-    // unknown-token cost + LiteralPenalty (ComputeEdgePenalties). English
-    // track, lowest tier (below).
+    // unknown-token cost + LiteralPenalty + LiteralPerLetter x letters
+    // (ComputeEdgePenalties). With SIME_WEAVE_LITERAL_NONPINYIN, spans that
+    // segment fully into complete pinyin syllables get none. English track,
+    // lowest tier (below).
     for (std::size_t s = 0; s < total; ++s) {
         auto& edges = net[s].es;
         if (std::none_of(edges.begin(), edges.end(),
                          [](const Link& e) { return e.id != NotToken; })) {
             continue;
         }
+#if SIME_WEAVE_LITERAL_NONPINYIN
+        // full_py[k]: input[s, s + k) segments fully into complete pinyin
+        // syllables (Dict::IsKnownPinyin, 1-6 letters each, lowercased).
+        std::vector<bool> full_py(1, true);
+#endif
         for (std::size_t e = s; e < total; ++e) {
             const char c = input[e];
             if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z'))) break;
+#if SIME_WEAVE_LITERAL_NONPINYIN
+            const std::size_t k = e + 1 - s;
+            bool covered = false;
+            for (std::size_t len = 1; len <= std::min(k, std::size_t(6)) && !covered;
+                 ++len) {
+                if (!full_py[k - len]) continue;
+                std::string syl(input.substr(e + 1 - len, len));
+                for (char& ch : syl) {
+                    if (ch >= 'A' && ch <= 'Z') ch = static_cast<char>(ch - 'A' + 'a');
+                }
+                covered = Dict::IsKnownPinyin(syl);
+            }
+            full_py.push_back(covered);
+            if (covered) continue;  // pure pinyin span: no literal edge
+#endif
             if (e + 1 - s >= LiteralMinLen) {
                 edges.push_back({s, e + 1, LiteralToken, nullptr,
                                  LiteralPenalty, false, true});

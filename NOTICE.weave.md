@@ -13,7 +13,8 @@ Modified files:
   `SIME_WEAVE_EN_PENALTY_MIXED` and `SIME_WEAVE_EN_SHORT_EDGE_LEN`; adds
   `SIME_WEAVE_CASE_FOLD` (default 0 = upstream); adds `SIME_WEAVE_LITERAL_EDGE`
   (default 0 = upstream), `SIME_WEAVE_LITERAL_MIN_LEN` and
-  `SIME_WEAVE_LITERAL_PENALTY`; `ToText`/`ExtractText` take the normalized
+  `SIME_WEAVE_LITERAL_PENALTY`, `SIME_WEAVE_LITERAL_PER_LETTER` (default 0.0)
+  and `SIME_WEAVE_LITERAL_NONPINYIN` (default 0); `ToText`/`ExtractText` take the normalized
   input (unused unless `SIME_WEAVE_LITERAL_EDGE=1`).
 - `src/sime.cc`: `ComputeEdgePenalties` applies the scoped English penalty when
   `SIME_WEAVE_PENALTY_RULE=1` (edge length counts ASCII letters only); with the default 0 it is upstream's code.
@@ -25,7 +26,10 @@ Modified files:
   every span of at least `SIME_WEAVE_LITERAL_MIN_LEN` ASCII letters starting at
   a column where a dictionary edge starts. It displays the typed letters, is
   scored as the LM's unknown token (`Scorer::ScoreMove` on an out-of-vocabulary
-  ID: back-off cost, empty next context) plus `SIME_WEAVE_LITERAL_PENALTY`, is
+  ID: back-off cost, empty next context) plus `SIME_WEAVE_LITERAL_PENALTY` plus
+  `SIME_WEAVE_LITERAL_PER_LETTER` per letter; with
+  `SIME_WEAVE_LITERAL_NONPINYIN=1` no literal edge is added for a span that
+  segments fully into complete pinyin syllables (`Dict::IsKnownPinyin`). It is
   kept out of `DecodeResult::tokens`, and sits on the English track of the tier
   filter below dictionary edges. With the default 0 it is upstream's code.
 

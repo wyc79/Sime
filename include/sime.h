@@ -1,4 +1,4 @@
-// Modified by the weave-ime project (2026): search constants EnglishPenalty, EnglishPenaltyShort, BeamSize, and the scoped-penalty constants are macro-backed (SIME_WEAVE_*); adds SIME_WEAVE_CASE_FOLD and the SIME_WEAVE_LITERAL_EDGE literal-letters edge.
+// Modified by the weave-ime project (2026): search constants EnglishPenalty, EnglishPenaltyShort, BeamSize, and the scoped-penalty constants are macro-backed (SIME_WEAVE_*); adds SIME_WEAVE_CASE_FOLD and the SIME_WEAVE_LITERAL_EDGE literal-letters edge (with SIME_WEAVE_LITERAL_PER_LETTER and SIME_WEAVE_LITERAL_NONPINYIN).
 #pragma once
 
 #include "common.h"
@@ -48,6 +48,16 @@
 #endif
 #ifndef SIME_WEAVE_LITERAL_PENALTY
 #define SIME_WEAVE_LITERAL_PENALTY 12.0
+#endif
+// Literal edge cost += SIME_WEAVE_LITERAL_PER_LETTER x (letters in the span).
+#ifndef SIME_WEAVE_LITERAL_PER_LETTER
+#define SIME_WEAVE_LITERAL_PER_LETTER 0.0
+#endif
+// SIME_WEAVE_LITERAL_NONPINYIN=1: no literal edge for a span that segments
+// fully into complete pinyin syllables (Dict::IsKnownPinyin; a bare initial
+// is not one).
+#ifndef SIME_WEAVE_LITERAL_NONPINYIN
+#define SIME_WEAVE_LITERAL_NONPINYIN 0
 #endif
 #ifndef SIME_WEAVE_BEAM_SIZE
 #define SIME_WEAVE_BEAM_SIZE 20
@@ -203,6 +213,7 @@ private:
     static constexpr TokenID LiteralToken = 0xFFFFFFFEu;
     static constexpr float_t LiteralPenalty = SIME_WEAVE_LITERAL_PENALTY;
     static constexpr std::size_t LiteralMinLen = SIME_WEAVE_LITERAL_MIN_LEN;
+    static constexpr float_t LiteralPerLetter = SIME_WEAVE_LITERAL_PER_LETTER;
 #endif
 
     // Lattice building
