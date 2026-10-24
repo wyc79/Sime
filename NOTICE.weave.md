@@ -34,10 +34,12 @@ Modified files:
   kept out of `DecodeResult::tokens`, and sits on the English track of the tier
   filter below dictionary edges. With the default 0 it is upstream's code.
   With `SIME_WEAVE_SPACE_BOUNDARY=1`, `NormalizeInput` keeps a typed space as one byte and
-  `InitNet` treats it like an apostrophe (a `NotToken` edge; the LM context resets) and
+  `InitNet` makes it a `SpaceToken` edge (the apostrophe keeps `NotToken` and its LM reset;
+  `Process` passes the LM state through a space unchanged at zero cost) and
   searches every dictionary, expansion and English-tail edge only within the
   space-delimited word, so no edge spans a typed space and the space adds no
-  text. With `SIME_WEAVE_RAW_CNT=1`, `DecodeSentence` Layer 2 reports `cnt` as
+  text or token. `ComputeEdgePenalties` evaluates `full_cover` and `short_input`
+  per space-delimited word. With `SIME_WEAVE_RAW_CNT=1`, `DecodeSentence` Layer 2 reports `cnt` as
   raw-input bytes consumed (`NormalizeInput` records the raw offset of each
   normalised byte; an edge ending at the end of the normalised input reports
   `input.size()`, like Layer 1). Both default to 0 = upstream.

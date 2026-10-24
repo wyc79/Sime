@@ -60,8 +60,9 @@
 #define SIME_WEAVE_LITERAL_NONPINYIN 0
 #endif
 // SIME_WEAVE_SPACE_BOUNDARY=1: DecodeSentence treats a typed space as a hard
-// boundary. No lattice edge spans it and it adds no output text or LM token
-// (it resets the LM context like an apostrophe does). 0 = upstream (space
+// boundary. No lattice edge spans it and it adds no output text or LM token;
+// the LM state passes through it unchanged, and the English penalty rule is
+// evaluated per space-delimited word. 0 = upstream (space
 // becomes the U+2581 byte triple and is searched like any other input).
 #ifndef SIME_WEAVE_SPACE_BOUNDARY
 #define SIME_WEAVE_SPACE_BOUNDARY 0
@@ -229,6 +230,12 @@ private:
     static constexpr std::size_t LiteralMinLen = SIME_WEAVE_LITERAL_MIN_LEN;
     static constexpr float_t LiteralPerLetter = SIME_WEAVE_LITERAL_PER_LETTER;
 #endif
+    // weave typed-space edge (SIME_WEAVE_SPACE_BOUNDARY=1): carries the LM state
+    // through unchanged (Process), produces no text and no token.
+    static constexpr TokenID SpaceToken = 0xFFFFFFFDu;
+    static constexpr bool IsNoToken(TokenID id) {
+        return id == NotToken || id == SpaceToken;
+    }
 
     // Lattice building
     void InitNet(std::string_view input,

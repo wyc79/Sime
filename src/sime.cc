@@ -245,11 +245,25 @@ void Sime::ComputeEdgePenalties(std::vector<Node>& net,
     // 87→他说 beat short English exact); long input keeps stricter
     // ExpansionPenalty so abbrev edges don't crowd out the natural
     // full-pinyin path.
-    const bool short_input = input.size() <= 4;
-    const float_t expansion_penalty = short_input
+    // weave (SIME_WEAVE_SPACE_BOUNDARY): the rule below is evaluated per
+    // space-delimited word: full_cover and short_input use the bounds of the
+    // word that contains the edge (spaces excluded).
+    std::size_t word_begin = 0, word_end = input.size();
+    bool short_input = input.size() <= 4;
+    float_t expansion_penalty = short_input
         ? ExpansionPenaltyShort : ExpansionPenalty;
     for (auto& col : net) {
         for (auto& edge : col.es) {
+#if SIME_WEAVE_SPACE_BOUNDARY
+            if (edge.id == SpaceToken) continue;
+            word_begin = input.substr(0, edge.start).find_last_of(' ');
+            word_begin = word_begin == std::string_view::npos ? 0 : word_begin + 1;
+            word_end = input.find(' ', edge.start);
+            if (word_end == std::string_view::npos) word_end = input.size();
+            short_input = word_end - word_begin <= 4;
+            expansion_penalty = short_input
+                ? ExpansionPenaltyShort : ExpansionPenalty;
+#endif
 #if SIME_WEAVE_LITERAL_EDGE
             // Literal edges pay only their own flat penalty (on top of the
             // LM's unknown-token cost added in Process).
@@ -266,7 +280,7 @@ void Sime::ComputeEdgePenalties(std::vector<Node>& net,
             float_t en_pen = 0.0f;
             if (edge.english) {
                 bool full_cover =
-                    edge.start == 0 && edge.end == input.size();
+                    edge.start == word_begin && edge.end == word_end;
 #if SIME_WEAVE_PENALTY_RULE == 0
                 en_pen = (full_cover && !short_input)
                     ? EnglishPenalty : EnglishPenaltyShort;
@@ -653,7 +667,7 @@ void Sime::InitNumNet(std::string_view start,
     // bucket (e.g. 466453 → 攻克 + google), and keeps CN expansion
     // alongside English exact (e.g. 539 → 可以 + key).
     auto tier_of = [](const Link& e) -> uint8_t {
-        if (e.id == NotToken) return 0;
+        if (IsNoToken(e.id)) return 0;
         return e.expansion ? 1 : 0;
     };
     std::vector<uint8_t> best_py(total + 2, 0xFF);
@@ -668,7 +682,7 @@ void Sime::InitNumNet(std::string_view start,
         }
         edges.erase(std::remove_if(edges.begin(), edges.end(),
             [&](const Link& e) {
-                if (e.id == NotToken) return false;
+                if (IsNoToken(e.id)) return false;
                 const auto& best = e.english ? best_en : best_py;
                 return tier_of(e) > best[e.end];
             }), edges.end());
@@ -759,7 +773,7 @@ std::string Sime::ExtractUnits(const std::vector<Link>& path,
                                std::string_view input) {
     std::string py;
     for (const auto& link : path) {
-        if (link.id == NotToken) continue;
+        if (IsNoToken(link.id)) continue;
 #if SIME_WEAVE_LITERAL_EDGE
         if (link.id == LiteralToken) {
             if (!py.empty()) py += '\'';
@@ -795,7 +809,7 @@ std::vector<TokenID> Sime::ExtractTokens(
     const std::vector<Link>& path) const {
     std::vector<TokenID> ids;
     for (const auto& link : path) {
-        if (link.id == NotToken) continue;
+        if (IsNoToken(link.id)) continue;
 #if SIME_WEAVE_LITERAL_EDGE
         // A literal edge is no vocabulary token: keep it out of the LM context.
         if (link.id == LiteralToken) continue;
@@ -1129,7 +1143,14 @@ void Sime::InitNet(std::string_view input,
 
     for (std::size_t s = 0; s < total; ++s) {
         if (is_sep(input[s])) {
+#if SIME_WEAVE_SPACE_BOUNDARY
+            // Apostrophe keeps upstream's NotToken (LM reset); a typed space
+            // is SpaceToken, which Process passes through without touching
+            // the LM state.
+            net[s].es.push_back({s, s + 1, input[s] == ' ' ? SpaceToken : NotToken});
+#else
             net[s].es.push_back({s, s + 1, NotToken});
+#endif
             continue;
         }
 
@@ -1246,7 +1267,7 @@ void Sime::InitNet(std::string_view input,
     for (std::size_t s = 0; s < total; ++s) {
         auto& edges = net[s].es;
         if (std::none_of(edges.begin(), edges.end(),
-                         [](const Link& e) { return e.id != NotToken; })) {
+                         [](const Link& e) { return !IsNoToken(e.id); })) {
             continue;
         }
 #if SIME_WEAVE_LITERAL_NONPINYIN
@@ -1289,7 +1310,7 @@ void Sime::InitNet(std::string_view input,
     // suppresses a dictionary edge and is dropped when a dictionary English
     // edge covers the same span.
     auto tier_of = [](const Link& e) -> uint8_t {
-        if (e.id == NotToken) return 0;
+        if (IsNoToken(e.id)) return 0;
 #if SIME_WEAVE_LITERAL_EDGE
         if (e.id == LiteralToken) return 2;
 #endif
@@ -1307,7 +1328,7 @@ void Sime::InitNet(std::string_view input,
         }
         edges.erase(std::remove_if(edges.begin(), edges.end(),
             [&](const Link& e) {
-                if (e.id == NotToken) return false;
+                if (IsNoToken(e.id)) return false;
                 const auto& best = e.english ? best_en : best_py;
                 return tier_of(e) > best[e.end];
             }), edges.end());
@@ -1336,7 +1357,7 @@ void Sime::PruneNode(std::vector<Link>& edges,
     }
 
     auto get_score = [&](TokenID id) -> float_t {
-        if (id == NotToken) return 0.0;
+        if (IsNoToken(id)) return 0.0;
         if (score_cache) {
             auto it = score_cache->find(id);
             if (it != score_cache->end()) return it->second;
@@ -1411,6 +1432,16 @@ void Sime::Process(std::vector<Node>& net) const {
         for (auto it = column.states.begin(); it != column.states.end(); ++it) {
             const auto& value = *it;
             for (const auto& word : column.es) {
+#if SIME_WEAVE_SPACE_BOUNDARY
+                if (word.id == SpaceToken) {
+                    // weave: a typed space carries the LM state through
+                    // unchanged at zero cost (no token, no context reset).
+                    net[word.end].states.Insert(
+                        State(value.score, word.end, value.pos, &value,
+                              word.id, word.pieces));
+                    continue;
+                }
+#endif
                 Scorer::Pos cur_pos = value.pos;
                 Scorer::Pos next_pos{};
                 float_t step = scorer_.ScoreMove(cur_pos, word.id, next_pos);
@@ -1452,7 +1483,7 @@ std::vector<Sime::Link> Sime::Backtrace(
 }
 
 std::u32string Sime::ToText(const Link& n, std::string_view input) const {
-    if (n.id == NotToken) {
+    if (IsNoToken(n.id)) {
         return {};
     }
 #if SIME_WEAVE_LITERAL_EDGE
@@ -1572,11 +1603,11 @@ std::vector<DecodeResult> Sime::DecodeSentence(
     // Skip leading apostrophe-only columns (see DecodeNumSentence).
     std::size_t l2_col = 0;
     while (l2_col < total && net[l2_col].es.size() == 1 &&
-           net[l2_col].es[0].id == NotToken) {
+           IsNoToken(net[l2_col].es[0].id)) {
         ++l2_col;
     }
     for (const auto& edge : net[l2_col].es) {
-        if (edge.id == NotToken) continue;
+        if (IsNoToken(edge.id)) continue;
 
         std::u32string text_u32 = ToText(edge, lower);
         if (text_u32.empty()) continue;
