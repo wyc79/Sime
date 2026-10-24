@@ -17,10 +17,12 @@
 // from upstream: SIME_WEAVE_PENALTY_RULE 1 (upstream 0),
 // SIME_WEAVE_EN_PENALTY_MIXED 0.0 (8.0), SIME_WEAVE_EN_SHORT_EDGE_LEN 3 (0),
 // SIME_WEAVE_CASE_FOLD 1 (0) and SIME_WEAVE_RAW_CNT 1 (0); state.h also
-// flips SIME_WEAVE_BEAM_EXACT to 1 (0). CASE_FOLD=1 needs a dictionary with
-// lowercase English keys (benchmarks/engines/sime/rebuild_dict.sh --transform
-// lowercase-en in weave-ime); with upstream's save/sime.dict, typed English
-// whose dictionary key has capitals is no longer found. Every other macro
+// flips SIME_WEAVE_BEAM_EXACT to 1 (0). CASE_FOLD=1 is meant for a dictionary
+// with lowercase English keys (benchmarks/engines/sime/rebuild_dict.sh
+// --transform lowercase-en in weave-ime); with upstream's cased save/sime.dict
+// a lowercase span still finds only lowercase keys and a span typed with
+// capitals finds its exact casing as upstream does (see NOTICE.weave.md).
+// Every other macro
 // defaults to its upstream value. Defining all of them to the upstream
 // values (listed in NOTICE.weave.md) reproduces upstream exactly.
 #ifndef SIME_WEAVE_EN_PENALTY
@@ -39,8 +41,11 @@
 #define SIME_WEAVE_EN_SHORT_EDGE_LEN 3  // upstream-equivalent: 0
 #endif
 // SIME_WEAVE_CASE_FOLD=1: English DAT lookups use the lowercased typed span
-// (pair with a lowercase-English-key dictionary); a typed uppercase letter
-// keeps only the items with exactly that casing, when there are any.
+// (pair with a lowercase-English-key dictionary), plus the span as typed
+// when it has capitals (a cased dictionary's capitalised keys); a typed
+// uppercase letter keeps only the items with exactly that casing, when there
+// are any. Units (DecodeResult::units) match letters ignoring case and keep
+// the typed casing.
 #ifndef SIME_WEAVE_CASE_FOLD
 #define SIME_WEAVE_CASE_FOLD 1  // upstream: 0
 #endif
@@ -80,6 +85,7 @@
 // bytes consumed in both layers (Layer 2: the raw offset where the edge ends,
 // the whole input when the edge reaches the end of the normalised input).
 // 0 = upstream (Layer 1 input.size(), Layer 2 normalised edge.end).
+// DecodeNumSentence and DecodeStr are unchanged (their cnt is already raw).
 #ifndef SIME_WEAVE_RAW_CNT
 #define SIME_WEAVE_RAW_CNT 1  // upstream: 0
 #endif

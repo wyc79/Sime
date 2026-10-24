@@ -17,20 +17,44 @@ behaves like upstream Sime**:
 | `SIME_WEAVE_PENALTY_RULE` (`include/sime.h`) | 1 | 0 | scoped English penalty (whole-input words keep the upstream penalties) |
 | `SIME_WEAVE_EN_PENALTY_MIXED` (`include/sime.h`) | 0.0 | 8.0 | English edges inside longer input pay no extra penalty ... |
 | `SIME_WEAVE_EN_SHORT_EDGE_LEN` (`include/sime.h`) | 3 | 0 | ... unless they are at most 3 letters long (then `EnglishPenaltyShort`, 8.0) |
-| `SIME_WEAVE_CASE_FOLD` (`include/sime.h`) | 1 | 0 | English lookups are case-insensitive; typed capitals still select their casing |
-| `SIME_WEAVE_RAW_CNT` (`include/sime.h`) | 1 | 0 | `DecodeResult::cnt` counts raw input bytes in both layers |
+| `SIME_WEAVE_CASE_FOLD` (`include/sime.h`) | 1 | 0 | English lookups are case-insensitive with a lowercase-key dictionary; typed capitals still select their casing (see below for each dictionary) |
+| `SIME_WEAVE_RAW_CNT` (`include/sime.h`) | 1 | 0 | `DecodeSentence` reports `DecodeResult::cnt` in raw input bytes (Layer 2 changes; `DecodeNumSentence` and `DecodeStr` are unchanged) |
 | `SIME_WEAVE_BEAM_EXACT` (`include/state.h`) | 1 | 0 | exact column beam (fixes upstream's stale bucket keys and state-count drift) |
 
-**Dictionary requirement.** `SIME_WEAVE_CASE_FOLD=1` looks English words up
-by their lowercased spelling, so it needs a `sime.dict` whose English keys are
-lowercase. Upstream's `save/sime.dict` has cased English keys (`Unity`,
-`HTTP`); with it, the default build cannot find those words from typed
-lowercase or mixed-case input. weave-ime builds the matching dictionary from
-`save/sime.dict` with Sime's own `sime-dump`/`sime-converter`
-(`benchmarks/engines/sime/rebuild_dict.sh --transform lowercase-en` in
-weave-ime): token table and pinyin items unchanged, English keys lowercased,
-colliding keys merged. That rebuilt dictionary is derived from `save/sime.dict`
-and is not committed here.
+**Dictionary.** `SIME_WEAVE_CASE_FOLD=1` looks every typed English span up
+by its lowercased spelling and, when the span has capitals, also as typed;
+the items both lookups find for one folded key form one group, and a typed
+capital keeps only the group's items whose token has exactly the typed
+casing (as a prefix, for completions), when there are any. What that does
+depends on the dictionary:
+
+- With a dictionary whose English keys are lowercase (the intended pairing),
+  any typed casing finds the word: `unity`, `Unity` and `UNITY` all reach
+  key `unity`, whose items are every casing of it (`Unity`, `unity`). Typed
+  `Unity` keeps `Unity`; a casing with no exact match (lowercase `unity`,
+  or `UNITY` when no `UNITY` token exists) leaves every casing to compete on
+  LM score, so lowercase input can display a capitalised word (`hello` ->
+  `Hello`). weave-ime builds this dictionary from `save/sime.dict` with
+  Sime's own `sime-dump`/`sime-converter`
+  (`benchmarks/engines/sime/rebuild_dict.sh --transform lowercase-en` in
+  weave-ime): token table and pinyin items unchanged, English keys
+  lowercased, colliding keys merged. It is derived from `save/sime.dict` and
+  is not committed here.
+- With upstream's `save/sime.dict` (cased English keys such as `Unity`,
+  `HTTP`, `unity`), a lowercase span finds only lowercase keys, exactly as
+  upstream. A span typed with capitals finds its exact casing as upstream
+  does (`Unity`, `HTTP`, `iPhone` stay as typed) and, through the folded
+  lookup, lowercase keys too: when the typed casing exists it wins its group
+  (`Unity` over `unity`), otherwise the lowercase word is a candidate
+  upstream would not have offered (typed `iPHone` can give `iphone`), and
+  completions of a capitalised prefix include lowercase-only words (`Uni`
+  also completes to `uniforms`). Keys cased differently from both the typed
+  span and lowercase (`iPhone` from typed `IPHONE`) are not found, as
+  upstream.
+
+`DecodeResult::units` match the typed letters to the dictionary pieces
+ignoring ASCII case and keep the typed casing (`Unity` -> `Unity`, not the
+lowercase-en pieces' `unity`).
 
 Unchanged defaults: `SIME_WEAVE_EN_PENALTY` 2.5, `SIME_WEAVE_EN_PENALTY_SHORT`
 8.0, `SIME_WEAVE_BEAM_SIZE` 20, `SIME_WEAVE_COLUMN_BEAM_SIZE` 48,
@@ -60,9 +84,14 @@ Modified files:
 - `src/sime.cc`: `ComputeEdgePenalties` applies the scoped English penalty when
   `SIME_WEAVE_PENALTY_RULE=1` (edge length counts ASCII letters only); with 0 it is upstream's code.
   With `SIME_WEAVE_CASE_FOLD=1`, English DAT lookups (`InitNet`, the letter
-  side of `InitNumNet`, `GetTokens`) use the lowercased typed span and a typed
-  uppercase letter keeps only the items whose token has exactly that casing,
-  when there are any; with 0 it is upstream's code.
+  side of `InitNumNet` including its letters+digits cross-boundary search,
+  `GetTokens`) use the lowercased typed span and, when the span has
+  capitals, the span as typed; results are grouped by match length and
+  folded key, and a typed uppercase letter keeps only the items of a group
+  whose token has exactly that casing, when there are any (the cross-boundary
+  search emits every item, as before). `AbbreviatePieces` matches typed
+  letters to pieces ignoring ASCII case and writes such letters as typed.
+  With 0 it is upstream's code.
   With `SIME_WEAVE_LITERAL_EDGE=1`, `InitNet` adds a literal-letters edge for
   every span of at least `SIME_WEAVE_LITERAL_MIN_LEN` ASCII letters starting at
   a column where a dictionary edge starts. It displays the typed letters, is
@@ -79,7 +108,15 @@ Modified files:
   searches every dictionary, expansion and English-tail edge only within the
   space-delimited word, so no edge spans a typed space and the space adds no
   text or token. `ComputeEdgePenalties` evaluates `full_cover` and `short_input`
-  per space-delimited word. With `SIME_WEAVE_RAW_CNT=1`, `DecodeSentence` Layer 2 reports `cnt` as
+  per space-delimited word. `ComputeEdgePenalties` is shared with
+  `DecodeNumSentence`, so the scoped penalty rule (`SIME_WEAVE_PENALTY_RULE=1`
+  with the weave defaults) applies to the nine-key (T9) path too: an English
+  edge that does not cover the whole letters+digits input and covers at least
+  4 typed letters of the `start` prefix (digits are not counted) pays
+  `SIME_WEAVE_EN_PENALTY_MIXED` (0.0) instead of upstream's 8.0; edges over
+  digits only, or with at most 3 letters, keep 8.0. weave-ime has not
+  measured the T9 path.
+  With `SIME_WEAVE_RAW_CNT=1`, `DecodeSentence` Layer 2 reports `cnt` as
   raw-input bytes consumed (`NormalizeInput` records the raw offset of each
   normalised byte; an edge ending at the end of the normalised input reports
   `input.size()`, like Layer 1). With 0 each is upstream's code; `SIME_WEAVE_SPACE_BOUNDARY`
@@ -95,8 +132,11 @@ Modified files:
   debug-only `SIME_WEAVE_BEAM_CHECK` (default 0; needs `SIME_WEAVE_BEAM_EXACT=1`),
   which aborts when the invariant fails after an `Insert`.
 
+- `.gitattributes`: upstream's single rule `dict/*.bin filter=lfs diff=lfs
+  merge=lfs -text` is replaced by `* -text`, so checkouts are byte-identical to
+  upstream regardless of `core.autocrlf`. The LFS rule was dropped because
+  this fork tracks no `dict/*` files.
+
 Added files:
 
-- `.gitattributes`: `* -text`, so checkouts are byte-identical to upstream
-  regardless of `core.autocrlf`.
 - `NOTICE.weave.md`: this file.
