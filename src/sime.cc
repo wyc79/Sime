@@ -1,4 +1,4 @@
-// Modified by the weave-ime project (2026): ComputeEdgePenalties gains the SIME_WEAVE_PENALTY_RULE scoped English penalty; English DAT lookups gain SIME_WEAVE_CASE_FOLD.
+// Modified by the weave-ime project (2026): ComputeEdgePenalties gains the SIME_WEAVE_PENALTY_RULE scoped English penalty; English DAT lookups gain SIME_WEAVE_CASE_FOLD; InitNet gains the SIME_WEAVE_LITERAL_EDGE literal-letters edge.
 #include "sime.h"
 
 #include "cut.h"
@@ -250,6 +250,14 @@ void Sime::ComputeEdgePenalties(std::vector<Node>& net,
         ? ExpansionPenaltyShort : ExpansionPenalty;
     for (auto& col : net) {
         for (auto& edge : col.es) {
+#if SIME_WEAVE_LITERAL_EDGE
+            // Literal edges pay only their own flat penalty (on top of the
+            // LM's unknown-token cost added in Process).
+            if (edge.id == LiteralToken) {
+                edge.penalty = LiteralPenalty;
+                continue;
+            }
+#endif
             if (!edge.pieces || edge.id == NotToken) continue;
             float_t en_pen = 0.0f;
             if (edge.english) {
@@ -748,6 +756,13 @@ std::string Sime::ExtractUnits(const std::vector<Link>& path,
     std::string py;
     for (const auto& link : path) {
         if (link.id == NotToken) continue;
+#if SIME_WEAVE_LITERAL_EDGE
+        if (link.id == LiteralToken) {
+            if (!py.empty()) py += '\'';
+            py += input.substr(link.start, link.end - link.start);
+            continue;
+        }
+#endif
         if (!link.pieces || link.pieces[0] == '\0') continue;
         if (!py.empty()) py += '\'';
         py += AbbreviatePieces(link.pieces,
@@ -756,10 +771,11 @@ std::string Sime::ExtractUnits(const std::vector<Link>& path,
     return py;
 }
 
-std::string Sime::ExtractText(const std::vector<Link>& path) const {
+std::string Sime::ExtractText(const std::vector<Link>& path,
+                              std::string_view input) const {
     std::u32string u32;
     for (const auto& link : path) {
-        u32 += ToText(link);
+        u32 += ToText(link, input);
     }
     return TextFromU32(u32);
 }
@@ -776,6 +792,10 @@ std::vector<TokenID> Sime::ExtractTokens(
     std::vector<TokenID> ids;
     for (const auto& link : path) {
         if (link.id == NotToken) continue;
+#if SIME_WEAVE_LITERAL_EDGE
+        // A literal edge is no vocabulary token: keep it out of the LM context.
+        if (link.id == LiteralToken) continue;
+#endif
         ids.push_back(link.id);
     }
     return ids;
@@ -1017,7 +1037,7 @@ std::vector<DecodeResult> Sime::DecodeStr(
          rank < tail_states.size() && results.size() < max_top; ++rank) {
         auto path = Backtrace(tail_states[rank], net.size() - 1);
         if (path.empty()) continue;
-        std::string text = ExtractText(path);
+        std::string text = ExtractText(path, lower);
         if (text.empty() || !dedup.insert(text).second) continue;
         std::string py = ExtractUnits(path, lower);
         results.push_back({std::move(text), std::move(py),
@@ -1182,13 +1202,42 @@ void Sime::InitNet(std::string_view input,
         }
     }
 
+#if SIME_WEAVE_LITERAL_EDGE
+    // weave literal edges: one per span [s, e) of ASCII letters with
+    // e - s >= LiteralMinLen, at every column s where a dictionary (pinyin
+    // or English) edge starts. Text = the typed letters; cost = the LM's
+    // unknown-token cost + LiteralPenalty (ComputeEdgePenalties). English
+    // track, lowest tier (below).
+    for (std::size_t s = 0; s < total; ++s) {
+        auto& edges = net[s].es;
+        if (std::none_of(edges.begin(), edges.end(),
+                         [](const Link& e) { return e.id != NotToken; })) {
+            continue;
+        }
+        for (std::size_t e = s; e < total; ++e) {
+            const char c = input[e];
+            if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z'))) break;
+            if (e + 1 - s >= LiteralMinLen) {
+                edges.push_back({s, e + 1, LiteralToken, nullptr,
+                                 LiteralPenalty, false, true});
+            }
+        }
+    }
+#endif
+
     // Two-track per-bucket tier filter: CN edges (!english) and English
     // edges (english) are filtered on independent tracks, so an exact
     // edge on one track doesn't suppress edges on the other.
     //   tier 0: !expansion (exact)
     //   tier 1: expansion (abbrev / completion)
+    // weave (SIME_WEAVE_LITERAL_EDGE): tier 2: literal edge, so it never
+    // suppresses a dictionary edge and is dropped when a dictionary English
+    // edge covers the same span.
     auto tier_of = [](const Link& e) -> uint8_t {
         if (e.id == NotToken) return 0;
+#if SIME_WEAVE_LITERAL_EDGE
+        if (e.id == LiteralToken) return 2;
+#endif
         return e.expansion ? 1 : 0;
     };
     std::vector<uint8_t> best_py(total + 2, 0xFF);
@@ -1347,10 +1396,19 @@ std::vector<Sime::Link> Sime::Backtrace(
     return path;
 }
 
-std::u32string Sime::ToText(const Link& n) const {
+std::u32string Sime::ToText(const Link& n, std::string_view input) const {
     if (n.id == NotToken) {
         return {};
     }
+#if SIME_WEAVE_LITERAL_EDGE
+    if (n.id == LiteralToken) {
+        // The typed ASCII letters of the span, case preserved.
+        std::string_view span = input.substr(n.start, n.end - n.start);
+        return std::u32string(span.begin(), span.end());
+    }
+#else
+    (void)input;
+#endif
     std::u32string buffer;
     const char32_t* chars = dict_.TokenAt(n.id);
     if (chars) {
@@ -1412,7 +1470,7 @@ std::vector<DecodeResult> Sime::DecodeSentence(
         for (std::size_t rank = 0; rank < scan; ++rank) {
             auto path = Backtrace(tail[rank], net.size() - 1);
             if (path.empty()) continue;
-            std::string text = ExtractText(path);
+            std::string text = ExtractText(path, lower);
             if (text.empty() || !l1_seen.insert(text).second) continue;
             std::string py = ExtractUnits(path, lower);
 
@@ -1450,7 +1508,7 @@ std::vector<DecodeResult> Sime::DecodeSentence(
     for (const auto& edge : net[l2_col].es) {
         if (edge.id == NotToken) continue;
 
-        std::u32string text_u32 = ToText(edge);
+        std::u32string text_u32 = ToText(edge, lower);
         if (text_u32.empty()) continue;
         std::string text_utf8 = TextFromU32(text_u32);
         if (dedup.contains(text_utf8)) continue;

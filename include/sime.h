@@ -1,4 +1,4 @@
-// Modified by the weave-ime project (2026): search constants EnglishPenalty, EnglishPenaltyShort, BeamSize, and the scoped-penalty constants are macro-backed (SIME_WEAVE_*); adds SIME_WEAVE_CASE_FOLD.
+// Modified by the weave-ime project (2026): search constants EnglishPenalty, EnglishPenaltyShort, BeamSize, and the scoped-penalty constants are macro-backed (SIME_WEAVE_*); adds SIME_WEAVE_CASE_FOLD and the SIME_WEAVE_LITERAL_EDGE literal-letters edge.
 #pragma once
 
 #include "common.h"
@@ -34,6 +34,20 @@
 // keeps only the items with exactly that casing, when there are any.
 #ifndef SIME_WEAVE_CASE_FOLD
 #define SIME_WEAVE_CASE_FOLD 0
+#endif
+// SIME_WEAVE_LITERAL_EDGE=1: InitNet adds one literal edge for every span of
+// at least SIME_WEAVE_LITERAL_MIN_LEN ASCII letters that starts at a column
+// where a dictionary edge starts. Its text is the typed letters; it is scored
+// as the LM's unknown token (back-off cost, context reset) plus
+// SIME_WEAVE_LITERAL_PENALTY.
+#ifndef SIME_WEAVE_LITERAL_EDGE
+#define SIME_WEAVE_LITERAL_EDGE 0
+#endif
+#ifndef SIME_WEAVE_LITERAL_MIN_LEN
+#define SIME_WEAVE_LITERAL_MIN_LEN 3
+#endif
+#ifndef SIME_WEAVE_LITERAL_PENALTY
+#define SIME_WEAVE_LITERAL_PENALTY 12.0
 #endif
 #ifndef SIME_WEAVE_BEAM_SIZE
 #define SIME_WEAVE_BEAM_SIZE 20
@@ -182,6 +196,14 @@ private:
     // pays EnglishPenaltyShort there.
     static constexpr float_t EnglishPenaltyMixed = SIME_WEAVE_EN_PENALTY_MIXED;
     static constexpr std::size_t EnglishShortEdgeLen = SIME_WEAVE_EN_SHORT_EDGE_LEN;
+#if SIME_WEAVE_LITERAL_EDGE
+    // weave literal edge: the token ID it carries is outside the dictionary
+    // and the LM, so Scorer::ScoreMove scores it as an unknown token (back-off
+    // weights + root probability) and returns the empty context.
+    static constexpr TokenID LiteralToken = 0xFFFFFFFEu;
+    static constexpr float_t LiteralPenalty = SIME_WEAVE_LITERAL_PENALTY;
+    static constexpr std::size_t LiteralMinLen = SIME_WEAVE_LITERAL_MIN_LEN;
+#endif
 
     // Lattice building
     void InitNet(std::string_view input,
@@ -198,8 +220,11 @@ private:
     static std::vector<Link> Backtrace(const State& tail_state,
                                        std::size_t end);
 
-    std::u32string ToText(const Link& n) const;
-    std::string ExtractText(const std::vector<Link>& path) const;
+    // `input` is the normalized input the lattice was built from; literal
+    // edges (SIME_WEAVE_LITERAL_EDGE) take their text from it.
+    std::u32string ToText(const Link& n, std::string_view input = {}) const;
+    std::string ExtractText(const std::vector<Link>& path,
+                            std::string_view input = {}) const;
     static std::string ExtractUnits(const std::vector<Link>& path,
                                     std::string_view input);
     static std::string AbbreviatePieces(const char* full_pieces,
