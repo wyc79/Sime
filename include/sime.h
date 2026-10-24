@@ -1,4 +1,4 @@
-// Modified by the weave-ime project (2026): search constants EnglishPenalty, EnglishPenaltyShort, BeamSize are macro-backed (SIME_WEAVE_*).
+// Modified by the weave-ime project (2026): search constants EnglishPenalty, EnglishPenaltyShort, BeamSize, and the scoped-penalty constants are macro-backed (SIME_WEAVE_*).
 #pragma once
 
 #include "common.h"
@@ -19,6 +19,15 @@
 #endif
 #ifndef SIME_WEAVE_EN_PENALTY_SHORT
 #define SIME_WEAVE_EN_PENALTY_SHORT 8.0
+#endif
+#ifndef SIME_WEAVE_PENALTY_RULE
+#define SIME_WEAVE_PENALTY_RULE 0
+#endif
+#ifndef SIME_WEAVE_EN_PENALTY_MIXED
+#define SIME_WEAVE_EN_PENALTY_MIXED 8.0
+#endif
+#ifndef SIME_WEAVE_EN_SHORT_EDGE_LEN
+#define SIME_WEAVE_EN_SHORT_EDGE_LEN 0
 #endif
 #ifndef SIME_WEAVE_BEAM_SIZE
 #define SIME_WEAVE_BEAM_SIZE 20
@@ -162,6 +171,11 @@ private:
     // candidates can win — the LM's <eos>|english=0 transition gives
     // English an unfair tail-cost edge in beam scoring otherwise.
     static constexpr float_t EnglishPenaltyShort = SIME_WEAVE_EN_PENALTY_SHORT;
+    // weave scoped rule (SIME_WEAVE_PENALTY_RULE=1): penalty for an English
+    // edge inside longer input, and the max edge length (letters) that still
+    // pays EnglishPenaltyShort there.
+    static constexpr float_t EnglishPenaltyMixed = SIME_WEAVE_EN_PENALTY_MIXED;
+    static constexpr std::size_t EnglishShortEdgeLen = SIME_WEAVE_EN_SHORT_EDGE_LEN;
 
     // Lattice building
     void InitNet(std::string_view input,

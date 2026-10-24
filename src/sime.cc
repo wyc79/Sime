@@ -1,3 +1,4 @@
+// Modified by the weave-ime project (2026): ComputeEdgePenalties gains the SIME_WEAVE_PENALTY_RULE scoped English penalty.
 #include "sime.h"
 
 #include "cut.h"
@@ -203,8 +204,23 @@ void Sime::ComputeEdgePenalties(std::vector<Node>& net,
             if (edge.english) {
                 bool full_cover =
                     edge.start == 0 && edge.end == input.size();
+#if SIME_WEAVE_PENALTY_RULE == 0
                 en_pen = (full_cover && !short_input)
                     ? EnglishPenalty : EnglishPenaltyShort;
+#else
+                // Scoped rule (weave): whole-input words keep the upstream
+                // penalties; an English edge inside longer input pays
+                // EnglishPenaltyMixed, or EnglishPenaltyShort when it is at
+                // most EnglishShortEdgeLen letters long.
+                if (full_cover) {
+                    en_pen = short_input
+                        ? EnglishPenaltyShort : EnglishPenalty;
+                } else if (edge.end - edge.start <= EnglishShortEdgeLen) {
+                    en_pen = EnglishPenaltyShort;
+                } else {
+                    en_pen = EnglishPenaltyMixed;
+                }
+#endif
             }
             edge.penalty = en_pen
                 + (edge.expansion ? expansion_penalty : 0.0f);

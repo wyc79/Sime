@@ -9,7 +9,10 @@ Modified files:
 
 - `include/sime.h`: search constants `EnglishPenalty`, `EnglishPenaltyShort`
   and `BeamSize` are now backed by `SIME_WEAVE_*` macros whose defaults equal
-  the upstream values.
+  the upstream values; adds `SIME_WEAVE_PENALTY_RULE` (default 0 = upstream),
+  `SIME_WEAVE_EN_PENALTY_MIXED` and `SIME_WEAVE_EN_SHORT_EDGE_LEN`.
+- `src/sime.cc`: `ComputeEdgePenalties` applies the scoped English penalty when
+  `SIME_WEAVE_PENALTY_RULE=1`; with the default 0 it is upstream's code.
 
 Added files:
 
