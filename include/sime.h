@@ -1,4 +1,4 @@
-// Modified by the weave-ime project (2026): search constants EnglishPenalty, EnglishPenaltyShort, BeamSize, and the scoped-penalty constants are macro-backed (SIME_WEAVE_*); adds SIME_WEAVE_CASE_FOLD and the SIME_WEAVE_LITERAL_EDGE literal-letters edge (with SIME_WEAVE_LITERAL_PER_LETTER and SIME_WEAVE_LITERAL_NONPINYIN).
+// Modified by the weave-ime project (2026): search constants EnglishPenalty, EnglishPenaltyShort, BeamSize, and the scoped-penalty constants are macro-backed (SIME_WEAVE_*); adds SIME_WEAVE_CASE_FOLD and the SIME_WEAVE_LITERAL_EDGE literal-letters edge (with SIME_WEAVE_LITERAL_PER_LETTER and SIME_WEAVE_LITERAL_NONPINYIN); adds SIME_WEAVE_SPACE_BOUNDARY and SIME_WEAVE_RAW_CNT.
 #pragma once
 
 #include "common.h"
@@ -58,6 +58,20 @@
 // is not one).
 #ifndef SIME_WEAVE_LITERAL_NONPINYIN
 #define SIME_WEAVE_LITERAL_NONPINYIN 0
+#endif
+// SIME_WEAVE_SPACE_BOUNDARY=1: DecodeSentence treats a typed space as a hard
+// boundary. No lattice edge spans it and it adds no output text or LM token
+// (it resets the LM context like an apostrophe does). 0 = upstream (space
+// becomes the U+2581 byte triple and is searched like any other input).
+#ifndef SIME_WEAVE_SPACE_BOUNDARY
+#define SIME_WEAVE_SPACE_BOUNDARY 0
+#endif
+// SIME_WEAVE_RAW_CNT=1: DecodeSentence reports DecodeResult::cnt in raw-input
+// bytes consumed in both layers (Layer 2: the raw offset where the edge ends,
+// the whole input when the edge reaches the end of the normalised input).
+// 0 = upstream (Layer 1 input.size(), Layer 2 normalised edge.end).
+#ifndef SIME_WEAVE_RAW_CNT
+#define SIME_WEAVE_RAW_CNT 0
 #endif
 #ifndef SIME_WEAVE_BEAM_SIZE
 #define SIME_WEAVE_BEAM_SIZE 20

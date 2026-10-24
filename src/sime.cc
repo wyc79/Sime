@@ -1,4 +1,4 @@
-// Modified by the weave-ime project (2026): ComputeEdgePenalties gains the SIME_WEAVE_PENALTY_RULE scoped English penalty; English DAT lookups gain SIME_WEAVE_CASE_FOLD; InitNet gains the SIME_WEAVE_LITERAL_EDGE literal-letters edge (with SIME_WEAVE_LITERAL_PER_LETTER and SIME_WEAVE_LITERAL_NONPINYIN).
+// Modified by the weave-ime project (2026): ComputeEdgePenalties gains the SIME_WEAVE_PENALTY_RULE scoped English penalty; English DAT lookups gain SIME_WEAVE_CASE_FOLD; InitNet gains the SIME_WEAVE_LITERAL_EDGE literal-letters edge (with SIME_WEAVE_LITERAL_PER_LETTER and SIME_WEAVE_LITERAL_NONPINYIN); NormalizeInput, InitNet and DecodeSentence gain SIME_WEAVE_SPACE_BOUNDARY and SIME_WEAVE_RAW_CNT.
 #include "sime.h"
 
 #include "cut.h"
@@ -993,20 +993,32 @@ std::vector<DecodeResult> Sime::DecodeNumStr(
 
 namespace {
 
-std::string NormalizeInput(std::string_view input) {
+// raw_off (optional, weave): raw_off[i] = index in `input` of the character
+// that produced byte i of the result.
+std::string NormalizeInput(std::string_view input,
+                           std::vector<std::size_t>* raw_off = nullptr) {
     std::string lower;
     lower.reserve(input.size());
-    for (char c : input) {
+    for (std::size_t raw = 0; raw < input.size(); ++raw) {
+        const char c = input[raw];
         if (c == '\'') {
             lower.push_back(c);
+#if SIME_WEAVE_SPACE_BOUNDARY
+        } else if (c == ' ') {
+            // weave: a typed space stays one byte; InitNet makes it a hard
+            // boundary (no edge crosses it, no text, no LM token).
+            lower.push_back(c);
+#else
         } else if (c == ' ') {
             // Space → ▁ (U+2581, UTF-8: E2 96 81)
             lower.push_back(static_cast<char>(0xE2));
             lower.push_back(static_cast<char>(0x96));
             lower.push_back(static_cast<char>(0x81));
+#endif
         } else if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')) {
             lower.push_back(c);
         }
+        if (raw_off) raw_off->resize(lower.size(), raw);
     }
     return lower;
 }
@@ -1060,6 +1072,19 @@ void Sime::InitNet(std::string_view input,
 #if SIME_WEAVE_CASE_FOLD
     const std::string en_input = FoldEnKey(input);
 #endif
+#if SIME_WEAVE_SPACE_BOUNDARY
+    // weave: word_end[i] = index of the first typed space at or after i, so no
+    // edge starting in a word reaches past it.
+    std::vector<std::size_t> word_end(total + 1, total);
+    for (std::size_t i = total; i-- > 0;) {
+        word_end[i] = input[i] == ' ' ? i : word_end[i + 1];
+    }
+    auto word_len = [&](std::size_t s) { return word_end[s] - s; };
+    auto is_sep = [](char c) { return c == '\'' || c == ' '; };
+#else
+    auto word_len = [&](std::size_t s) { return total - s; };
+    auto is_sep = [](char c) { return c == '\''; };
+#endif
 
     auto emit = [&](std::size_t s, std::size_t new_col,
                     TokenID tid, const char* pieces,
@@ -1079,7 +1104,7 @@ void Sime::InitNet(std::string_view input,
         seg_bounds.push_back(0);
         std::size_t pos = 0;
         while (pos < total) {
-            if (input[pos] == '\'') {
+            if (is_sep(input[pos])) {
                 ++pos;
                 seg_bounds.push_back(pos);
                 seg_is_syllable.push_back(false);
@@ -1103,12 +1128,12 @@ void Sime::InitNet(std::string_view input,
     }
 
     for (std::size_t s = 0; s < total; ++s) {
-        if (input[s] == '\'') {
+        if (is_sep(input[s])) {
             net[s].es.push_back({s, s + 1, NotToken});
             continue;
         }
 
-        std::string_view suffix = input.substr(s);
+        std::string_view suffix = input.substr(s, word_len(s));
 
         auto emit_results = [&](const std::vector<trie::SearchResult>& results,
                                 Dict::DatType type, bool en) {
@@ -1126,7 +1151,7 @@ void Sime::InitNet(std::string_view input,
             Dict::LetterPinyin, false);
 #if SIME_WEAVE_CASE_FOLD
         for (const auto& r : dict_.Dat(Dict::LetterEn)
-                 .PrefixSearch(std::string_view(en_input).substr(s), 512)) {
+                 .PrefixSearch(std::string_view(en_input).substr(s, word_len(s)), 512)) {
             ForEachCasedItem(dict_, dict_.GetEntry(Dict::LetterEn, r.value),
                              suffix.substr(0, r.length), /*prefix=*/false,
                              [&](const Dict::Item& item) {
@@ -1151,10 +1176,13 @@ void Sime::InitNet(std::string_view input,
     if (expansion) {
         for (std::size_t s_idx = 0; s_idx + 1 < seg_bounds.size(); ++s_idx) {
             std::size_t s = seg_bounds[s_idx];
-            if (s >= total || input[s] == '\'') continue;
+            if (s >= total || is_sep(input[s])) continue;
 
             bool saw_incomplete = false;
             for (std::size_t bi = s_idx + 1; bi < seg_bounds.size(); ++bi) {
+#if SIME_WEAVE_SPACE_BOUNDARY
+                if (input[seg_bounds[bi] - 1] == ' ') break;  // never cross a typed space
+#endif
                 if (!seg_is_syllable[bi - 1]) saw_incomplete = true;
                 if (!saw_incomplete) continue;
                 std::size_t target = seg_bounds[bi];
@@ -1176,17 +1204,17 @@ void Sime::InitNet(std::string_view input,
                 }
             }
             if (saw_incomplete) {
-                std::string_view suffix = input.substr(s);
+                std::string_view suffix = input.substr(s, word_len(s));
 #if SIME_WEAVE_CASE_FOLD
                 auto results = dict_.Dat(Dict::LetterEn)
-                    .FindWordsWithPrefix(std::string_view(en_input).substr(s), 1024);
+                    .FindWordsWithPrefix(std::string_view(en_input).substr(s, word_len(s)), 1024);
                 for (const auto& r : results) {
                     if (r.length <= suffix.size()) continue;
                     ForEachCasedItem(dict_, dict_.GetEntry(Dict::LetterEn, r.value),
                                      suffix, /*prefix=*/true,
                                      [&](const Dict::Item& item) {
-                        net[s].es.push_back({s, total, item.id, item.pieces,
-                                             0, true, true});
+                        net[s].es.push_back({s, s + suffix.size(), item.id,
+                                             item.pieces, 0, true, true});
                     });
                 }
 #else
@@ -1196,7 +1224,8 @@ void Sime::InitNet(std::string_view input,
                     if (r.length <= suffix.size()) continue;
                     auto entry = dict_.GetEntry(Dict::LetterEn, r.value);
                     for (uint32_t i = 0; i < entry.count; ++i) {
-                        net[s].es.push_back({s, total, entry.items[i].id,
+                        net[s].es.push_back({s, s + suffix.size(),
+                                             entry.items[i].id,
                                              entry.items[i].pieces, 0, true,
                                              true});
                     }
@@ -1460,10 +1489,25 @@ std::vector<DecodeResult> Sime::DecodeSentence(
     if (!ready_ || input.empty()) return results;
     MaybeTrimCaches();
 
+#if SIME_WEAVE_RAW_CNT
+    std::vector<std::size_t> raw_off;
+    std::string lower = NormalizeInput(input, &raw_off);
+#else
     std::string lower = NormalizeInput(input);
+#endif
     if (lower.empty()) return results;
 
     const std::size_t total = lower.size();
+    // Layer 2 cnt: normalised edge end by default; with SIME_WEAVE_RAW_CNT the
+    // raw-input bytes consumed (the whole input once the edge reaches the end
+    // of the normalised input, matching Layer 1's input.size()).
+    auto l2_cnt = [&](std::size_t norm_end) -> std::size_t {
+#if SIME_WEAVE_RAW_CNT
+        return norm_end >= total ? input.size() : raw_off[norm_end];
+#else
+        return norm_end;
+#endif
+    };
 
     std::vector<Node> net;
     InitNet(lower, net, /*expansion=*/true);
@@ -1562,7 +1606,7 @@ std::vector<DecodeResult> Sime::DecodeSentence(
             best_l2,
             l2_index_by_text,
             {std::move(text_utf8), std::move(edge_py),
-             ExtractTokens({edge}), score, edge.end});
+             ExtractTokens({edge}), score, l2_cnt(edge.end)});
     }
 
     for (auto& entry : best_l2) {
