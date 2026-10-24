@@ -1,4 +1,4 @@
-// Modified by the weave-ime project (2026): search constants EnglishPenalty, EnglishPenaltyShort, BeamSize, and the scoped-penalty constants are macro-backed (SIME_WEAVE_*); adds SIME_WEAVE_CASE_FOLD and the SIME_WEAVE_LITERAL_EDGE literal-letters edge (with SIME_WEAVE_LITERAL_PER_LETTER and SIME_WEAVE_LITERAL_NONPINYIN); adds SIME_WEAVE_SPACE_BOUNDARY and SIME_WEAVE_RAW_CNT.
+// Modified by the weave-ime project (2026): search constants EnglishPenalty, EnglishPenaltyShort, BeamSize, and the scoped-penalty constants are macro-backed (SIME_WEAVE_*); adds SIME_WEAVE_CASE_FOLD and the SIME_WEAVE_LITERAL_EDGE literal-letters edge (with SIME_WEAVE_LITERAL_PER_LETTER and SIME_WEAVE_LITERAL_NONPINYIN); adds SIME_WEAVE_SPACE_BOUNDARY and SIME_WEAVE_RAW_CNT; weave defaults PENALTY_RULE=1, EN_PENALTY_MIXED=0.0, EN_SHORT_EDGE_LEN=3, CASE_FOLD=1, RAW_CNT=1 (see NOTICE.weave.md).
 #pragma once
 
 #include "common.h"
@@ -13,7 +13,16 @@
 #include <string_view>
 #include <vector>
 
-// weave-ime tunables; defaults equal the upstream values.
+// weave-ime tunables. Since weave-ime Phase 2 (Task 8) five defaults differ
+// from upstream: SIME_WEAVE_PENALTY_RULE 1 (upstream 0),
+// SIME_WEAVE_EN_PENALTY_MIXED 0.0 (8.0), SIME_WEAVE_EN_SHORT_EDGE_LEN 3 (0),
+// SIME_WEAVE_CASE_FOLD 1 (0) and SIME_WEAVE_RAW_CNT 1 (0); state.h also
+// flips SIME_WEAVE_BEAM_EXACT to 1 (0). CASE_FOLD=1 needs a dictionary with
+// lowercase English keys (benchmarks/engines/sime/rebuild_dict.sh --transform
+// lowercase-en in weave-ime); with upstream's save/sime.dict, typed English
+// whose dictionary key has capitals is no longer found. Every other macro
+// defaults to its upstream value. Defining all of them to the upstream
+// values (listed in NOTICE.weave.md) reproduces upstream exactly.
 #ifndef SIME_WEAVE_EN_PENALTY
 #define SIME_WEAVE_EN_PENALTY 2.5
 #endif
@@ -21,19 +30,19 @@
 #define SIME_WEAVE_EN_PENALTY_SHORT 8.0
 #endif
 #ifndef SIME_WEAVE_PENALTY_RULE
-#define SIME_WEAVE_PENALTY_RULE 0
+#define SIME_WEAVE_PENALTY_RULE 1  // upstream: 0
 #endif
 #ifndef SIME_WEAVE_EN_PENALTY_MIXED
-#define SIME_WEAVE_EN_PENALTY_MIXED 8.0
+#define SIME_WEAVE_EN_PENALTY_MIXED 0.0  // upstream-equivalent: 8.0
 #endif
 #ifndef SIME_WEAVE_EN_SHORT_EDGE_LEN
-#define SIME_WEAVE_EN_SHORT_EDGE_LEN 0
+#define SIME_WEAVE_EN_SHORT_EDGE_LEN 3  // upstream-equivalent: 0
 #endif
 // SIME_WEAVE_CASE_FOLD=1: English DAT lookups use the lowercased typed span
 // (pair with a lowercase-English-key dictionary); a typed uppercase letter
 // keeps only the items with exactly that casing, when there are any.
 #ifndef SIME_WEAVE_CASE_FOLD
-#define SIME_WEAVE_CASE_FOLD 0
+#define SIME_WEAVE_CASE_FOLD 1  // upstream: 0
 #endif
 // SIME_WEAVE_LITERAL_EDGE=1: InitNet adds one literal edge for every span of
 // at least SIME_WEAVE_LITERAL_MIN_LEN ASCII letters that starts at a column
@@ -72,7 +81,7 @@
 // the whole input when the edge reaches the end of the normalised input).
 // 0 = upstream (Layer 1 input.size(), Layer 2 normalised edge.end).
 #ifndef SIME_WEAVE_RAW_CNT
-#define SIME_WEAVE_RAW_CNT 0
+#define SIME_WEAVE_RAW_CNT 1  // upstream: 0
 #endif
 #ifndef SIME_WEAVE_BEAM_SIZE
 #define SIME_WEAVE_BEAM_SIZE 20

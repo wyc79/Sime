@@ -1,4 +1,4 @@
-// Modified by the weave-ime project (2026): adds SIME_WEAVE_BEAM_EXACT (exact column eviction), SIME_WEAVE_COLUMN_BEAM_SIZE (column state cap, default 48) and the SIME_WEAVE_BEAM_CHECK invariant check.
+// Modified by the weave-ime project (2026): adds SIME_WEAVE_BEAM_EXACT (exact column eviction), SIME_WEAVE_COLUMN_BEAM_SIZE (column state cap, default 48) and the SIME_WEAVE_BEAM_CHECK invariant check; weave default BEAM_EXACT=1 (see NOTICE.weave.md).
 #pragma once
 
 #include "common.h"
@@ -17,9 +17,9 @@
 // removes the globally worst state. 0 = upstream (a push into an existing
 // bucket leaves its key stale, so eviction can remove a better state from
 // another bucket; a replacement increments the state count, so the column
-// evicts states it has room for).
+// evicts states it has room for). Default 1 since weave-ime Phase 2 (Task 8).
 #ifndef SIME_WEAVE_BEAM_EXACT
-#define SIME_WEAVE_BEAM_EXACT 0
+#define SIME_WEAVE_BEAM_EXACT 1  // upstream: 0
 #endif
 // SIME_WEAVE_COLUMN_BEAM_SIZE: states kept per lattice column (NetStates'
 // cap across all LM-state buckets). Default 48 = upstream.
