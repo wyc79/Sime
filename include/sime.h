@@ -1,4 +1,4 @@
-// Modified by the weave-ime project (2026): search constants EnglishPenalty, EnglishPenaltyShort, BeamSize, and the scoped-penalty constants are macro-backed (SIME_WEAVE_*).
+// Modified by the weave-ime project (2026): search constants EnglishPenalty, EnglishPenaltyShort, BeamSize, and the scoped-penalty constants are macro-backed (SIME_WEAVE_*); adds SIME_WEAVE_CASE_FOLD.
 #pragma once
 
 #include "common.h"
@@ -28,6 +28,12 @@
 #endif
 #ifndef SIME_WEAVE_EN_SHORT_EDGE_LEN
 #define SIME_WEAVE_EN_SHORT_EDGE_LEN 0
+#endif
+// SIME_WEAVE_CASE_FOLD=1: English DAT lookups use the lowercased typed span
+// (pair with a lowercase-English-key dictionary); a typed uppercase letter
+// keeps only the items with exactly that casing, when there are any.
+#ifndef SIME_WEAVE_CASE_FOLD
+#define SIME_WEAVE_CASE_FOLD 0
 #endif
 #ifndef SIME_WEAVE_BEAM_SIZE
 #define SIME_WEAVE_BEAM_SIZE 20

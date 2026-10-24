@@ -1,4 +1,4 @@
-// Modified by the weave-ime project (2026): ComputeEdgePenalties gains the SIME_WEAVE_PENALTY_RULE scoped English penalty.
+// Modified by the weave-ime project (2026): ComputeEdgePenalties gains the SIME_WEAVE_PENALTY_RULE scoped English penalty; English DAT lookups gain SIME_WEAVE_CASE_FOLD.
 #include "sime.h"
 
 #include "cut.h"
@@ -39,6 +39,57 @@ void RerankWithGru(std::vector<DecodeResult>& candidates,
             return lhs.score > rhs.score;
         });
 }
+
+#if SIME_WEAVE_CASE_FOLD
+// weave case fold: the English DAT is looked up with the typed span's ASCII
+// letters lowercased (pair with a dictionary whose English keys are
+// lowercase, benchmarks/engines/sime/rebuild_dict.sh --transform
+// lowercase-en). Bytes keep their positions, so DAT match lengths are spans
+// of the typed input.
+std::string FoldEnKey(std::string_view s) {
+    std::string out(s);
+    for (char& c : out) {
+        if (c >= 'A' && c <= 'Z') c = static_cast<char>(c - 'A' + 'a');
+    }
+    return out;
+}
+
+// True iff the token's text equals `typed` byte for byte, or, with
+// `prefix`, starts with it (completion edges cover a typed prefix).
+bool TokenMatchesTyped(const Dict& dict, TokenID id, std::string_view typed,
+                       bool prefix) {
+    const char32_t* t = dict.TokenAt(id);
+    if (!t) return false;
+    std::size_t i = 0;
+    for (; i < typed.size(); ++i) {
+        if (t[i] == 0 || t[i] != static_cast<unsigned char>(typed[i])) {
+            return false;
+        }
+    }
+    return prefix || t[i] == 0;
+}
+
+// Calls f(item) for the items of `entry` to emit for the typed span: all of
+// them, unless the span has an uppercase letter and at least one item's
+// token matches the typed casing; then only the matching items.
+template <class F>
+void ForEachCasedItem(const Dict& dict, const Dict::Entry& entry,
+                      std::string_view typed, bool prefix, F&& f) {
+    bool only_matching = false;
+    if (std::any_of(typed.begin(), typed.end(),
+                    [](char c) { return c >= 'A' && c <= 'Z'; })) {
+        for (uint32_t i = 0; i < entry.count && !only_matching; ++i) {
+            only_matching = TokenMatchesTyped(dict, entry.items[i].id, typed, prefix);
+        }
+    }
+    for (uint32_t i = 0; i < entry.count; ++i) {
+        if (!only_matching
+            || TokenMatchesTyped(dict, entry.items[i].id, typed, prefix)) {
+            f(entry.items[i]);
+        }
+    }
+}
+#endif
 
 bool BetterLayer2Entry(const DecodeResult& lhs, const DecodeResult& rhs) {
     // Dedup tie-break: pure score comparison. Penalty is already in score
@@ -252,6 +303,60 @@ void Sime::InitNumNet(std::string_view start,
         net[s].es.push_back({s, new_col, tid, pieces, 0, false, en});
     };
 
+#if SIME_WEAVE_CASE_FOLD
+    // English lookups (en) use the case-folded letters; the typed span picks
+    // the casing (see ForEachCasedItem). Callers pass suffixes of `start`.
+    const std::string en_start = FoldEnKey(start);
+    auto en_key = [&](std::size_t s, std::string_view typed) {
+        return std::string_view(en_start).substr(s, typed.size());
+    };
+    auto emit_dat = [&](std::size_t s, Dict::DatType type,
+                        std::string_view suffix, std::size_t max_end,
+                        bool pinyin, bool en) {
+        auto results = pinyin
+            ? dict_.Dat(type).PrefixSearchPinyin(suffix, 512)
+            : dict_.Dat(type).PrefixSearch(en ? en_key(s, suffix) : suffix, 512);
+        for (const auto& r : results) {
+            std::size_t new_col = s + r.length;
+            if (new_col > max_end) continue;
+            auto entry = dict_.GetEntry(type, r.value);
+            if (en) {
+                ForEachCasedItem(dict_, entry, suffix.substr(0, r.length),
+                                 /*prefix=*/false, [&](const Dict::Item& item) {
+                    emit(s, new_col, item.id, item.pieces, en);
+                });
+                continue;
+            }
+            for (uint32_t i = 0; i < entry.count; ++i) {
+                emit(s, new_col, entry.items[i].id, entry.items[i].pieces, en);
+            }
+        }
+    };
+
+    auto expand_dat = [&](std::size_t s, Dict::DatType type,
+                          std::string_view tail, std::size_t target_col,
+                          std::size_t max_num, bool pinyin, bool en) {
+        auto results = pinyin
+            ? dict_.Dat(type).FindWordsWithPrefixPinyin(tail, max_num)
+            : dict_.Dat(type).FindWordsWithPrefix(en ? en_key(s, tail) : tail, max_num);
+        for (const auto& r : results) {
+            if (!pinyin && r.length <= tail.size()) continue;
+            auto entry = dict_.GetEntry(type, r.value);
+            if (en) {
+                ForEachCasedItem(dict_, entry, tail, /*prefix=*/true,
+                                 [&](const Dict::Item& item) {
+                    net[s].es.push_back({s, target_col, item.id, item.pieces,
+                                         0, true, en});
+                });
+                continue;
+            }
+            for (uint32_t i = 0; i < entry.count; ++i) {
+                net[s].es.push_back({s, target_col, entry.items[i].id,
+                                     entry.items[i].pieces, 0, true, en});
+            }
+        }
+    };
+#else
     auto emit_dat = [&](std::size_t s, Dict::DatType type,
                         std::string_view suffix, std::size_t max_end,
                         bool pinyin, bool en) {
@@ -287,6 +392,7 @@ void Sime::InitNumNet(std::string_view start,
             }
         }
     };
+#endif
 
     // letter_bounds = greedy syllable walk (mirrors InitNet).
     // letter_is_syllable[i] is true iff segment i is a *terminal*
@@ -372,11 +478,22 @@ void Sime::InitNumNet(std::string_view start,
             if (!nums.empty() && (p - s) <= 6) {
                 std::string cross(suffix);
                 cross += nums;
+#if SIME_WEAVE_CASE_FOLD
+                // English: case-folded letters + digits (digits carry no
+                // casing, so every item of a match is emitted).
+                std::string en_cross(en_key(s, suffix));
+                en_cross += nums;
+#endif
                 auto cross_emit = [&](Dict::DatType type,
                                       trie::DoubleArray::CharExpander expander,
                                       std::size_t max_num, bool en) {
+#if SIME_WEAVE_CASE_FOLD
+                    auto results = dict_.Dat(type).PrefixSearchT9(
+                        en ? en_cross : cross, expander, max_num);
+#else
                     auto results = dict_.Dat(type).PrefixSearchT9(
                         cross, expander, max_num);
+#endif
                     for (const auto& r : results) {
                         std::size_t new_col = s + r.length;
                         if (new_col <= p) continue;  // already covered by letter-only search
@@ -916,6 +1033,9 @@ void Sime::InitNet(std::string_view input,
     const std::size_t total = input.size();
     net.clear();
     net.resize(total + 2);
+#if SIME_WEAVE_CASE_FOLD
+    const std::string en_input = FoldEnKey(input);
+#endif
 
     auto emit = [&](std::size_t s, std::size_t new_col,
                     TokenID tid, const char* pieces,
@@ -980,9 +1100,20 @@ void Sime::InitNet(std::string_view input,
         emit_results(
             dict_.Dat(Dict::LetterPinyin).PrefixSearchPinyin(suffix, 512, 2),
             Dict::LetterPinyin, false);
+#if SIME_WEAVE_CASE_FOLD
+        for (const auto& r : dict_.Dat(Dict::LetterEn)
+                 .PrefixSearch(std::string_view(en_input).substr(s), 512)) {
+            ForEachCasedItem(dict_, dict_.GetEntry(Dict::LetterEn, r.value),
+                             suffix.substr(0, r.length), /*prefix=*/false,
+                             [&](const Dict::Item& item) {
+                emit(s, s + r.length, item.id, item.pieces, true);
+            });
+        }
+#else
         emit_results(
             dict_.Dat(Dict::LetterEn).PrefixSearch(suffix, 512),
             Dict::LetterEn, true);
+#endif
     }
 
     // Boundary-driven expansion: walk forward; once any segment in the
@@ -1022,6 +1153,19 @@ void Sime::InitNet(std::string_view input,
             }
             if (saw_incomplete) {
                 std::string_view suffix = input.substr(s);
+#if SIME_WEAVE_CASE_FOLD
+                auto results = dict_.Dat(Dict::LetterEn)
+                    .FindWordsWithPrefix(std::string_view(en_input).substr(s), 1024);
+                for (const auto& r : results) {
+                    if (r.length <= suffix.size()) continue;
+                    ForEachCasedItem(dict_, dict_.GetEntry(Dict::LetterEn, r.value),
+                                     suffix, /*prefix=*/true,
+                                     [&](const Dict::Item& item) {
+                        net[s].es.push_back({s, total, item.id, item.pieces,
+                                             0, true, true});
+                    });
+                }
+#else
                 auto results = dict_.Dat(Dict::LetterEn)
                     .FindWordsWithPrefix(suffix, 1024);
                 for (const auto& r : results) {
@@ -1033,6 +1177,7 @@ void Sime::InitNet(std::string_view input,
                                              true});
                     }
                 }
+#endif
             }
         }
     }
@@ -1444,8 +1589,26 @@ std::vector<DecodeResult> Sime::GetTokens(
         }
     };
 
+#if SIME_WEAVE_CASE_FOLD
+    // Case-folded English lookup; a typed uppercase letter keeps only the
+    // completions with that casing, when there are any.
+    for (const auto& r : dict_.Dat(Dict::LetterEn)
+             .FindWordsWithPrefix(FoldEnKey(prefix), num * 4)) {
+        ForEachCasedItem(dict_, dict_.GetEntry(Dict::LetterEn, r.value),
+                         prefix, /*prefix=*/true, [&](const Dict::Item& item) {
+            const char32_t* chars = dict_.TokenAt(item.id);
+            if (!chars || chars[0] == 0) return;
+            std::u32string u32(chars);
+            Scorer::Pos pos{};
+            Scorer::Pos next{};
+            candidates.push_back({TextFromU32(u32), item.id,
+                                  scorer_.ScoreMove(pos, item.id, next)});
+        });
+    }
+#else
     collect(Dict::LetterEn,
             dict_.Dat(Dict::LetterEn).FindWordsWithPrefix(prefix, num * 4));
+#endif
     if (!en) {
         // Mixed mode: also search the pinyin DAT. Plain prefix match is
         // exactly what we want — user typed a literal pinyin prefix (possibly
