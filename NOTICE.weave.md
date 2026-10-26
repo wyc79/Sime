@@ -60,8 +60,9 @@ lowercase-en pieces' `unity`).
 Unchanged defaults: `SIME_WEAVE_EN_PENALTY` 2.5, `SIME_WEAVE_BEAM_SIZE` 20, `SIME_WEAVE_COLUMN_BEAM_SIZE` 48,
 `SIME_WEAVE_LITERAL_EDGE` 0 (and `SIME_WEAVE_LITERAL_MIN_LEN` 3,
 `SIME_WEAVE_LITERAL_PENALTY` 12.0, `SIME_WEAVE_LITERAL_PER_LETTER` 0.0,
-`SIME_WEAVE_LITERAL_NONPINYIN` 0), `SIME_WEAVE_SPACE_BOUNDARY` 0 and the
-debug-only `SIME_WEAVE_BEAM_CHECK` 0; all equal upstream.
+`SIME_WEAVE_LITERAL_NONPINYIN` 0), `SIME_WEAVE_SPACE_BOUNDARY` 0, the
+debug-only `SIME_WEAVE_BEAM_CHECK` 0 and `SIME_WEAVE_OVERLAY` 0 (Phase 4.5 Task 3, below);
+all equal upstream.
 
 **Upstream behaviour** is reproduced exactly by defining every macro to its
 upstream value: `PENALTY_RULE=0 EN_PENALTY_MIXED=8.0 EN_SHORT_EDGE_LEN=0
@@ -74,6 +75,32 @@ edge length went 3 -> 2 and `SIME_WEAVE_EN_PENALTY_SHORT` 8.0 -> 4.0 (the old pa
 `rc_e3_p8.0`; define both macros to get it back). Evidence in weave-ime:
 `benchmarks/results/recall/penalty/summary.md` and `benchmarks/results/phase45/recall_gate/decision.md`.
 Nothing else changed; no left context is fed to the decoder (D2).
+
+**Phase 4.5 Task 3 (2026-10-26): the lexicon overlay, `SIME_WEAVE_OVERLAY` (default 0).** With
+0 nothing below is compiled (`src/overlay.cc` compiles to nothing) and the engine is unchanged.
+With 1, `Sime::LoadOverlay` reads versioned lexicon layer files (weave-ime
+`Docs/plans/phase-4.5-lexicon.md`: L1 ESDB words, L2 wordfreq frequencies, L3 a term pack, L4
+user words), merges them across layers (same merge key, or the same typed key with the same
+folded spelling; display spelling from the highest layer) and builds an in-memory English DAT
+over their typed keys. A typed key whose L0 English entry already has a token with the same
+folded spelling adds no edge (the L0 token keeps its LM cost). `InitNet` collects overlay edges
+(exact matches, and tail completions where L0 English completions fire) into a separate list;
+`DecodeSentence`/`DecodeStr` give them the English edge penalties, filter (exact over completion)
+and prune them among themselves and append them after L0's own filtered and pruned edges, so no
+L0 edge is removed or re-costed. `Process`, `PruneNode` and Layer 2 score an overlay edge at its
+band cost `max(floor, floor + band * clamp((zipf_hi - z) / (zipf_hi - zipf_lo), 0, 1) - bonus)`
+(runtime `OverlayConfig`; defaults 18.0, 6.0, 1.0, 6.0, user bonus 6.0) with a history break:
+the next word is scored from the LM root, as after `NotToken`. Overlay tokens carry IDs from
+`Overlay::kTokenBase` (0xE0000000) in `DecodeResult::tokens`; `InitialState` treats one in a
+context vector as the same history break (not skipped like `NotToken`); `LearnUserSentence`
+ignores sentences that contain one; `TokenText` returns its spelling. Runtime switches:
+`SetOverlayLayerEnabled` per layer (off equals loading without that layer),
+`SetDisplayCasing` (`kCanonical` default: L0 words as before unless an overlay layer has the
+word, overlay words in their canonical spelling; `kAsTyped`: every English word in the typed
+casing, which changes L0 output and so is off by default), `SetDedupByKey` (default off:
+de-duplicate the candidate lists by ASCII-lowercased, space-free text instead of exact text).
+With the macro on and empty layers (or every layer switched off) decoding is byte-identical. The
+T9 path, `GetTokens` and `NextTokens` do not use the overlay.
 
 Modified files:
 
@@ -146,6 +173,11 @@ Modified files:
   debug-only `SIME_WEAVE_BEAM_CHECK` (default 0; needs `SIME_WEAVE_BEAM_EXACT=1`),
   which aborts when the invariant fails after an `Insert`.
 
+- `include/sime.h`, `src/sime.cc`, `CMakeLists.txt` (Phase 4.5 Task 3, `SIME_WEAVE_OVERLAY`,
+  default 0): the overlay API and its use in `InitNet`, `PruneNode`, `InitialState`, `Process`,
+  `ToText`, `DecodeSentence`, `DecodeStr`, `LearnUserSentence` and `TokenText` as described
+  above; `CMakeLists.txt` adds `src/overlay.cc` to `sime_core`.
+
 - `.gitattributes`: upstream's single rule `dict/*.bin filter=lfs diff=lfs
   merge=lfs -text` is replaced by `* -text`, so checkouts are byte-identical to
   upstream regardless of `core.autocrlf`. The LFS rule was dropped because
@@ -154,3 +186,6 @@ Modified files:
 Added files:
 
 - `NOTICE.weave.md`: this file.
+- `include/overlay.h`, `src/overlay.cc` (Phase 4.5 Task 3): the lexicon overlay
+  (`SIME_WEAVE_OVERLAY`, default 0; empty translation unit then): layer file parsing,
+  cross-layer merge, bounded costs, L0 coverage and the overlay English DAT.

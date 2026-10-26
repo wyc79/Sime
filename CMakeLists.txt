@@ -1,3 +1,4 @@
+# Modified by the weave-ime project (2026): adds src/overlay.cc to sime_core (SIME_WEAVE_OVERLAY lexicon overlay; compiles to nothing unless SIME_WEAVE_OVERLAY=1; see NOTICE.weave.md).
 cmake_minimum_required(VERSION 3.20)
 project(sime_new LANGUAGES CXX)
 
@@ -20,6 +21,7 @@ add_library(sime_core
     ${NEW_SRC_DIR}/state.cc
     ${NEW_SRC_DIR}/user.cc
     ${NEW_SRC_DIR}/sime.cc
+    ${NEW_SRC_DIR}/overlay.cc
     ${NEW_SRC_DIR}/trie.cc
     ${NEW_SRC_DIR}/cut.cc
     ${NEW_SRC_DIR}/gru_reranker.cc
