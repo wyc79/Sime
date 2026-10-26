@@ -87,7 +87,8 @@ public:
         return IsToken(id) && id - kTokenBase < tokens_.size() ? &tokens_[id - kTokenBase] : nullptr;
     }
     float_t Cost(TokenID id) const { return tokens_[id - kTokenBase].cost; }
-    // Canonical display of an L0 token that an overlay entry covers (nullptr if none).
+    // Canonical display of an L0 token that an L3 or L4 spelling covers (nullptr if none; L1
+    // never re-cases an L0 word).
     const std::u32string* CanonicalForL0(TokenID id) const {
         auto it = l0_canonical_.find(id);
         return it == l0_canonical_.end() ? nullptr : &it->second;

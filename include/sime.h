@@ -215,7 +215,7 @@ public:
     const OverlayStats& GetOverlayStats() const { return overlay_.Stats(); }
     static bool IsOverlayToken(TokenID id) { return Overlay::IsToken(id); }
     // Display casing of English words (D5). kCanonical (default) is today's output for L0
-    // words (a word an overlay layer also has shows the overlay's spelling); kAsTyped shows
+    // words (a word the term pack or user dictionary also has shows that spelling; L1 never re-cases); kAsTyped shows
     // every English word with the typed letters' casing.
     void SetDisplayCasing(DisplayCasing casing);
     // De-duplicate candidate lists by the displayed text's key (ASCII lowercase, spaces

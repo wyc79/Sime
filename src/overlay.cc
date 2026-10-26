@@ -265,7 +265,10 @@ void Overlay::Rebuild(const Dict& l0) {
                     const char32_t* t = l0.TokenAt(id);
                     if (t && FoldSpelling(t) == folded) {
                         covered = true;
-                        l0_canonical_[id] = sp32;
+                        // Only the term pack and the user dictionary may re-case an L0 word;
+                        // ESDB's casing (lowercase when any) marks a common noun, not a
+                        // canonical form, so L1 only adds words L0 lacks.
+                        if (form.slot >= static_cast<int>(LexLayer::L3)) l0_canonical_[id] = sp32;
                     }
                 }
             }

@@ -83,7 +83,8 @@ With 1, `Sime::LoadOverlay` reads versioned lexicon layer files (weave-ime
 user words), merges them across layers (same merge key, or the same typed key with the same
 folded spelling; display spelling from the highest layer) and builds an in-memory English DAT
 over their typed keys. A typed key whose L0 English entry already has a token with the same
-folded spelling adds no edge (the L0 token keeps its LM cost). `InitNet` collects overlay edges
+folded spelling adds no edge (the L0 token keeps its LM cost); only an L3 or L4 spelling may
+then change how that L0 token is displayed (L1 only adds words L0 lacks). `InitNet` collects overlay edges
 (exact matches, and tail completions where L0 English completions fire) into a separate list;
 `DecodeSentence`/`DecodeStr` give them the English edge penalties, filter (exact over completion)
 and prune them among themselves and append them after L0's own filtered and pruned edges, so no
@@ -95,8 +96,8 @@ the next word is scored from the LM root, as after `NotToken`. Overlay tokens ca
 context vector as the same history break (not skipped like `NotToken`); `LearnUserSentence`
 ignores sentences that contain one; `TokenText` returns its spelling. Runtime switches:
 `SetOverlayLayerEnabled` per layer (off equals loading without that layer),
-`SetDisplayCasing` (`kCanonical` default: L0 words as before unless an overlay layer has the
-word, overlay words in their canonical spelling; `kAsTyped`: every English word in the typed
+`SetDisplayCasing` (`kCanonical` default: L0 words as before unless the term pack or user
+dictionary has the word, overlay words in their canonical spelling; `kAsTyped`: every English word in the typed
 casing, which changes L0 output and so is off by default), `SetDedupByKey` (default off:
 de-duplicate the candidate lists by ASCII-lowercased, space-free text instead of exact text).
 With the macro on and empty layers (or every layer switched off) decoding is byte-identical. The
