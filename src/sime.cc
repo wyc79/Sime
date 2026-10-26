@@ -1,4 +1,4 @@
-// Modified by the weave-ime project (2026): ComputeEdgePenalties gains the SIME_WEAVE_PENALTY_RULE scoped English penalty; English DAT lookups gain SIME_WEAVE_CASE_FOLD (folded and, for a span with capitals, as-typed lookups merged per folded key) and AbbreviatePieces matches letters ignoring case under it; InitNet gains the SIME_WEAVE_LITERAL_EDGE literal-letters edge (with SIME_WEAVE_LITERAL_PER_LETTER and SIME_WEAVE_LITERAL_NONPINYIN); NormalizeInput, InitNet and DecodeSentence gain SIME_WEAVE_SPACE_BOUNDARY and SIME_WEAVE_RAW_CNT.
+// Modified by the weave-ime project (2026): ComputeEdgePenalties gains the SIME_WEAVE_PENALTY_RULE scoped English penalty; English DAT lookups gain SIME_WEAVE_CASE_FOLD (folded and, for a span with capitals, as-typed lookups merged per folded key) and AbbreviatePieces matches letters ignoring case under it; InitNet gains the SIME_WEAVE_LITERAL_EDGE literal-letters edge (with SIME_WEAVE_LITERAL_PER_LETTER and SIME_WEAVE_LITERAL_NONPINYIN); NormalizeInput, InitNet and DecodeSentence gain SIME_WEAVE_SPACE_BOUNDARY and SIME_WEAVE_RAW_CNT; adds Sime::TokenizeContext (Cutter over the last N code points of committed text; additive, no macro).
 #include "sime.h"
 
 #include "cut.h"
@@ -1636,6 +1636,26 @@ std::vector<DecodeResult> Sime::DecodeSentence(
     std::string_view input,
     std::size_t extra) const {
     return DecodeSentence(input, {}, extra);
+}
+
+std::vector<TokenID> Sime::TokenizeContext(std::string_view utf8,
+                                           std::size_t max_code_points) const {
+    std::vector<TokenID> ids;
+    if (!ready_ || utf8.empty() || max_code_points == 0) return ids;
+    // Start of the last max_code_points code points (a code point starts at
+    // every byte that is not a UTF-8 continuation byte 10xxxxxx).
+    std::size_t begin = utf8.size(), seen = 0;
+    while (begin > 0 && seen < max_code_points) {
+        --begin;
+        if ((static_cast<unsigned char>(utf8[begin]) & 0xC0) != 0x80) ++seen;
+    }
+    std::call_once(cutter_once_, [this] {
+        cutter_ = std::make_unique<Cutter>(dict_, scorer_);
+    });
+    for (const auto& ct : cutter_->Cut(utf8.substr(begin))) {
+        ids.push_back(ct.is_unk ? NotToken : ct.id);
+    }
+    return ids;
 }
 
 std::vector<DecodeResult> Sime::DecodeSentence(

@@ -121,6 +121,14 @@ Modified files:
   normalised byte; an edge ending at the end of the normalised input reports
   `input.size()`, like Layer 1). With 0 each is upstream's code; `SIME_WEAVE_SPACE_BOUNDARY`
   defaults to 0 and `SIME_WEAVE_RAW_CNT` to 1 (see the table above).
+- `include/sime.h`, `src/sime.cc` (additive, no macro): a public method
+  `Sime::TokenizeContext(utf8, max_code_points)` returns the token IDs of the
+  last `max_code_points` code points of committed text, cut by Sime's own
+  `Cutter` over the loaded dictionary and LM (built once, on first use); a
+  piece with no dictionary token is `NotToken`. It is meant to feed
+  `DecodeSentence`'s existing `context` argument. It changes no decoding by
+  itself (nothing in the engine calls it), so it needs no `SIME_WEAVE_*`
+  macro, and a build with or without it decodes every input identically.
 - `include/state.h`, `src/state.cc`: `NetStates`' column cap (upstream 48) is
   backed by `SIME_WEAVE_COLUMN_BEAM_SIZE` (default 48). With
   `SIME_WEAVE_BEAM_EXACT=1`, `NetStates::Insert` re-keys a bucket in the

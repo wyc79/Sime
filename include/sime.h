@@ -1,4 +1,4 @@
-// Modified by the weave-ime project (2026): search constants EnglishPenalty, EnglishPenaltyShort, BeamSize, and the scoped-penalty constants are macro-backed (SIME_WEAVE_*); adds SIME_WEAVE_CASE_FOLD and the SIME_WEAVE_LITERAL_EDGE literal-letters edge (with SIME_WEAVE_LITERAL_PER_LETTER and SIME_WEAVE_LITERAL_NONPINYIN); adds SIME_WEAVE_SPACE_BOUNDARY and SIME_WEAVE_RAW_CNT; weave defaults PENALTY_RULE=1, EN_PENALTY_MIXED=0.0, EN_SHORT_EDGE_LEN=3, CASE_FOLD=1, RAW_CNT=1 (see NOTICE.weave.md).
+// Modified by the weave-ime project (2026): search constants EnglishPenalty, EnglishPenaltyShort, BeamSize, and the scoped-penalty constants are macro-backed (SIME_WEAVE_*); adds SIME_WEAVE_CASE_FOLD and the SIME_WEAVE_LITERAL_EDGE literal-letters edge (with SIME_WEAVE_LITERAL_PER_LETTER and SIME_WEAVE_LITERAL_NONPINYIN); adds SIME_WEAVE_SPACE_BOUNDARY and SIME_WEAVE_RAW_CNT; weave defaults PENALTY_RULE=1, EN_PENALTY_MIXED=0.0, EN_SHORT_EDGE_LEN=3, CASE_FOLD=1, RAW_CNT=1; adds Sime::TokenizeContext (additive, no macro) (see NOTICE.weave.md).
 #pragma once
 
 #include "common.h"
@@ -96,6 +96,7 @@
 namespace sime {
 
 class GruReranker;
+class Cutter;
 
 struct DecodeResult {
     std::string text;        // UTF-8 display text (▁ prefix stripped)
@@ -152,6 +153,12 @@ public:
         std::string_view input,
         const std::vector<TokenID>& context,
         std::size_t extra = 0) const;
+    // weave-ime: token IDs for committed UTF-8 text, for DecodeSentence's
+    // `context`. Runs Cutter (the dictionary's tokens, scored by the LM) over
+    // the last `max_code_points` code points of `utf8`; a piece with no
+    // dictionary token is NotToken. Empty text or window gives an empty vector.
+    std::vector<TokenID> TokenizeContext(std::string_view utf8,
+                                         std::size_t max_code_points) const;
     // Prediction: given confirmed token IDs as context, suggest next words.
     // When `en` is true, only English tokens are returned (for the English
     // IME's prediction slot); Chinese tokens are filtered out.
@@ -305,6 +312,9 @@ private:
     bool user_sentence_enabled_ = false;
     bool ready_ = false;
     std::unique_ptr<GruReranker> gru_;
+    // TokenizeContext's Cutter, built on first use.
+    mutable std::once_flag cutter_once_;
+    mutable std::unique_ptr<Cutter> cutter_;
 };
 
 } // namespace sime
