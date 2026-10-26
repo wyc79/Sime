@@ -8,7 +8,7 @@ Per Apache-2.0 section 4, files modified in this fork carry a header line
 ## Default behaviour (changed in weave-ime Phase 2, Task 8)
 
 Each change below is a `SIME_WEAVE_*` macro guarded by `#ifndef`. Until
-weave-ime Phase 2 Task 8 every default reproduced upstream. Since then six
+weave-ime Phase 2 Task 8 every default reproduced upstream. Since then seven
 defaults differ from upstream, so **a build with no `-D` defines no longer
 behaves like upstream Sime**:
 
@@ -16,7 +16,8 @@ behaves like upstream Sime**:
 |---|---|---|---|
 | `SIME_WEAVE_PENALTY_RULE` (`include/sime.h`) | 1 | 0 | scoped English penalty (whole-input words keep the upstream penalties) |
 | `SIME_WEAVE_EN_PENALTY_MIXED` (`include/sime.h`) | 0.0 | 8.0 | English edges inside longer input pay no extra penalty ... |
-| `SIME_WEAVE_EN_SHORT_EDGE_LEN` (`include/sime.h`) | 3 | 0 | ... unless they are at most 3 letters long (then `EnglishPenaltyShort`, 8.0) |
+| `SIME_WEAVE_EN_SHORT_EDGE_LEN` (`include/sime.h`) | 2 | 0 | ... unless they are at most 2 letters long (then `EnglishPenaltyShort`, 4.0) |
+| `SIME_WEAVE_EN_PENALTY_SHORT` (`include/sime.h`) | 4.0 | 8.0 | the penalty for those short edges (and for edges over digits only) |
 | `SIME_WEAVE_CASE_FOLD` (`include/sime.h`) | 1 | 0 | English lookups are case-insensitive with a lowercase-key dictionary; typed capitals still select their casing (see below for each dictionary) |
 | `SIME_WEAVE_RAW_CNT` (`include/sime.h`) | 1 | 0 | `DecodeSentence` reports `DecodeResult::cnt` in raw input bytes (Layer 2 changes; `DecodeNumSentence` and `DecodeStr` are unchanged) |
 | `SIME_WEAVE_BEAM_EXACT` (`include/state.h`) | 1 | 0 | exact column beam (fixes upstream's stale bucket keys and state-count drift) |
@@ -56,8 +57,7 @@ depends on the dictionary:
 ignoring ASCII case and keep the typed casing (`Unity` -> `Unity`, not the
 lowercase-en pieces' `unity`).
 
-Unchanged defaults: `SIME_WEAVE_EN_PENALTY` 2.5, `SIME_WEAVE_EN_PENALTY_SHORT`
-8.0, `SIME_WEAVE_BEAM_SIZE` 20, `SIME_WEAVE_COLUMN_BEAM_SIZE` 48,
+Unchanged defaults: `SIME_WEAVE_EN_PENALTY` 2.5, `SIME_WEAVE_BEAM_SIZE` 20, `SIME_WEAVE_COLUMN_BEAM_SIZE` 48,
 `SIME_WEAVE_LITERAL_EDGE` 0 (and `SIME_WEAVE_LITERAL_MIN_LEN` 3,
 `SIME_WEAVE_LITERAL_PENALTY` 12.0, `SIME_WEAVE_LITERAL_PER_LETTER` 0.0,
 `SIME_WEAVE_LITERAL_NONPINYIN` 0), `SIME_WEAVE_SPACE_BOUNDARY` 0 and the
@@ -65,9 +65,15 @@ debug-only `SIME_WEAVE_BEAM_CHECK` 0; all equal upstream.
 
 **Upstream behaviour** is reproduced exactly by defining every macro to its
 upstream value: `PENALTY_RULE=0 EN_PENALTY_MIXED=8.0 EN_SHORT_EDGE_LEN=0
-CASE_FOLD=0 RAW_CNT=0 BEAM_EXACT=0` plus the unchanged values above (each name
+EN_PENALTY_SHORT=8.0 CASE_FOLD=0 RAW_CNT=0 BEAM_EXACT=0` plus the unchanged values above (each name
 prefixed `SIME_WEAVE_`), with upstream's `save/sime.dict`. weave-ime's
 regression gate checks that build against its Phase 1 reference runs.
+
+**Phase 4.5 Task 2 (2026-10-26).** The owner chose `rc_e2_p4.0` (D1): the short-English
+edge length went 3 -> 2 and `SIME_WEAVE_EN_PENALTY_SHORT` 8.0 -> 4.0 (the old pair is
+`rc_e3_p8.0`; define both macros to get it back). Evidence in weave-ime:
+`benchmarks/results/recall/penalty/summary.md` and `benchmarks/results/phase45/recall_gate/decision.md`.
+Nothing else changed; no left context is fed to the decoder (D2).
 
 Modified files:
 

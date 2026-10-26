@@ -1,4 +1,4 @@
-// Modified by the weave-ime project (2026): search constants EnglishPenalty, EnglishPenaltyShort, BeamSize, and the scoped-penalty constants are macro-backed (SIME_WEAVE_*); adds SIME_WEAVE_CASE_FOLD and the SIME_WEAVE_LITERAL_EDGE literal-letters edge (with SIME_WEAVE_LITERAL_PER_LETTER and SIME_WEAVE_LITERAL_NONPINYIN); adds SIME_WEAVE_SPACE_BOUNDARY and SIME_WEAVE_RAW_CNT; weave defaults PENALTY_RULE=1, EN_PENALTY_MIXED=0.0, EN_SHORT_EDGE_LEN=3, CASE_FOLD=1, RAW_CNT=1; adds Sime::TokenizeContext (additive, no macro) (see NOTICE.weave.md).
+// Modified by the weave-ime project (2026): search constants EnglishPenalty, EnglishPenaltyShort, BeamSize, and the scoped-penalty constants are macro-backed (SIME_WEAVE_*); adds SIME_WEAVE_CASE_FOLD and the SIME_WEAVE_LITERAL_EDGE literal-letters edge (with SIME_WEAVE_LITERAL_PER_LETTER and SIME_WEAVE_LITERAL_NONPINYIN); adds SIME_WEAVE_SPACE_BOUNDARY and SIME_WEAVE_RAW_CNT; weave defaults PENALTY_RULE=1, EN_PENALTY_MIXED=0.0, EN_SHORT_EDGE_LEN=2, EN_PENALTY_SHORT=4.0 (Phase 4.5 Task 2; were 3 and 8.0), CASE_FOLD=1, RAW_CNT=1; adds Sime::TokenizeContext (additive, no macro) (see NOTICE.weave.md).
 #pragma once
 
 #include "common.h"
@@ -13,9 +13,10 @@
 #include <string_view>
 #include <vector>
 
-// weave-ime tunables. Since weave-ime Phase 2 (Task 8) five defaults differ
+// weave-ime tunables. Since weave-ime Phase 2 (Task 8) six defaults differ
 // from upstream: SIME_WEAVE_PENALTY_RULE 1 (upstream 0),
-// SIME_WEAVE_EN_PENALTY_MIXED 0.0 (8.0), SIME_WEAVE_EN_SHORT_EDGE_LEN 3 (0),
+// SIME_WEAVE_EN_PENALTY_MIXED 0.0 (8.0), SIME_WEAVE_EN_SHORT_EDGE_LEN 2 (0; 3 until Phase 4.5 Task 2),
+// SIME_WEAVE_EN_PENALTY_SHORT 4.0 (8.0; likewise),
 // SIME_WEAVE_CASE_FOLD 1 (0) and SIME_WEAVE_RAW_CNT 1 (0); state.h also
 // flips SIME_WEAVE_BEAM_EXACT to 1 (0). CASE_FOLD=1 is meant for a dictionary
 // with lowercase English keys (benchmarks/engines/sime/rebuild_dict.sh
@@ -29,7 +30,7 @@
 #define SIME_WEAVE_EN_PENALTY 2.5
 #endif
 #ifndef SIME_WEAVE_EN_PENALTY_SHORT
-#define SIME_WEAVE_EN_PENALTY_SHORT 8.0
+#define SIME_WEAVE_EN_PENALTY_SHORT 4.0  // upstream: 8.0
 #endif
 #ifndef SIME_WEAVE_PENALTY_RULE
 #define SIME_WEAVE_PENALTY_RULE 1  // upstream: 0
@@ -38,7 +39,7 @@
 #define SIME_WEAVE_EN_PENALTY_MIXED 0.0  // upstream-equivalent: 8.0
 #endif
 #ifndef SIME_WEAVE_EN_SHORT_EDGE_LEN
-#define SIME_WEAVE_EN_SHORT_EDGE_LEN 3  // upstream-equivalent: 0
+#define SIME_WEAVE_EN_SHORT_EDGE_LEN 2  // upstream-equivalent: 0
 #endif
 // SIME_WEAVE_CASE_FOLD=1: English DAT lookups use the lowercased typed span
 // (pair with a lowercase-English-key dictionary), plus the span as typed
