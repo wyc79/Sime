@@ -1,4 +1,4 @@
-// Modified by the weave-ime project (2026): search constants EnglishPenalty, EnglishPenaltyShort, BeamSize, and the scoped-penalty constants are macro-backed (SIME_WEAVE_*); adds SIME_WEAVE_CASE_FOLD and the SIME_WEAVE_LITERAL_EDGE literal-letters edge (with SIME_WEAVE_LITERAL_PER_LETTER and SIME_WEAVE_LITERAL_NONPINYIN); adds SIME_WEAVE_SPACE_BOUNDARY and SIME_WEAVE_RAW_CNT; weave defaults PENALTY_RULE=1, EN_PENALTY_MIXED=0.0, EN_SHORT_EDGE_LEN=2, EN_PENALTY_SHORT=4.0 (Phase 4.5 Task 2; were 3 and 8.0), CASE_FOLD=1, RAW_CNT=1; adds Sime::TokenizeContext (additive, no macro); adds the SIME_WEAVE_OVERLAY lexicon overlay API (LoadOverlay, layer switches, display casing, dedup by key; default 0); adds the candidate-contract provenance (DecodeResult::segments and ::basis, additive, no macro) (see NOTICE.weave.md).
+// Modified by the weave-ime project (2026): search constants EnglishPenalty, EnglishPenaltyShort, BeamSize, and the scoped-penalty constants are macro-backed (SIME_WEAVE_*); adds SIME_WEAVE_CASE_FOLD and the SIME_WEAVE_LITERAL_EDGE literal-letters edge (with SIME_WEAVE_LITERAL_PER_LETTER and SIME_WEAVE_LITERAL_NONPINYIN); adds SIME_WEAVE_SPACE_BOUNDARY and SIME_WEAVE_RAW_CNT; weave defaults PENALTY_RULE=1, EN_PENALTY_MIXED=0.0, EN_SHORT_EDGE_LEN=2, EN_PENALTY_SHORT=4.0 (Phase 4.5 Task 2; were 3 and 8.0), CASE_FOLD=1, RAW_CNT=1; adds Sime::TokenizeContext (additive, no macro); adds the SIME_WEAVE_OVERLAY lexicon overlay API (LoadOverlay, layer switches, display casing, dedup by key; default 0); adds the candidate-contract provenance (DecodeResult::segments and ::basis, additive, no macro); adds SIME_WEAVE_INCREMENTAL incremental decoding (snapshots per prefix, runtime switch, default 0) (see NOTICE.weave.md).
 #pragma once
 
 #include "common.h"
@@ -8,6 +8,7 @@
 #include "user.h"
 #include "overlay.h"
 #include <filesystem>
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -94,6 +95,14 @@
 #ifndef SIME_WEAVE_BEAM_SIZE
 #define SIME_WEAVE_BEAM_SIZE 20
 #endif
+// SIME_WEAVE_INCREMENTAL=1: DecodeSentence keeps the lattice and beam of earlier calls (one snapshot
+// per normalised prefix of the composition) and, when the input extends or shortens the last one,
+// rebuilds the edges, resumes Process at the first column whose edges changed and rebuilds the
+// output; the result equals a full re-decode exactly (weave-ime Docs/plans/phase-4.5-incremental.md).
+// SetIncremental(false) switches it off at runtime. 0 (default): every call decodes from scratch.
+#ifndef SIME_WEAVE_INCREMENTAL
+#define SIME_WEAVE_INCREMENTAL 0
+#endif
 
 namespace sime {
 
@@ -135,6 +144,39 @@ struct Segment {
     bool expansion = false;      // an abbreviation / tail-completion edge
 };
 
+#if SIME_WEAVE_INCREMENTAL
+// How DecodeSentence answered (SIME_WEAVE_INCREMENTAL). kFull: a full decode with no reused state
+// (first call, generation change, an edit, incremental switched off); kSame: the snapshot of the same
+// normalised input was reused; kResume: Process resumed from a snapshot of a prefix; kFallback: a
+// consistency check failed and the call was decoded in full.
+enum class DecodeKind : std::uint8_t { kFull = 0, kSame = 1, kResume = 2, kFallback = 3 };
+struct DecodeInfo {
+    DecodeKind kind = DecodeKind::kFull;
+    bool warm = false;            // kSame or kResume: decoder state was reused (contract cache_state)
+    std::size_t resume_col = 0;   // kResume: first column whose beam was recomputed; kSame: `columns`
+    std::size_t columns = 0;      // lattice columns (normalised input length + 2); 0 without a lattice
+};
+struct IncrementalStats {
+    std::uint64_t generation = 0;   // bumped by every change that drops the snapshots
+    std::size_t decodes = 0;        // DecodeSentence calls
+    std::size_t full = 0, same = 0, resumed = 0, fallbacks = 0;
+    std::size_t self_checks = 0;    // warm calls compared with a full decode (SetIncrementalSelfCheck)
+    std::size_t columns = 0;        // over resumed calls: lattice columns
+    std::size_t columns_redone = 0; // over resumed calls: columns whose beam was recomputed
+    std::size_t snapshots = 0;      // snapshots kept now
+    // SetIncrementalDiagnostics(true): changed columns before the old end of resumed calls, by what
+    // changed there (one column can count under several), and recomputed columns at the column cap.
+    std::size_t diff_append = 0;    // new edges reaching past the old end
+    std::size_t diff_old_end = 0;   // an edge ending at the old end vanished or changed
+    std::size_t diff_penalty = 0;   // an edge kept its identity but its penalty changed
+    std::size_t diff_order = 0;     // the edges both lists share are in another order (pruning)
+    std::size_t diff_other = 0;     // an edge ending before the old end appeared or vanished
+    std::size_t capped_redone = 0;  // recomputed columns holding SIME_WEAVE_COLUMN_BEAM_SIZE states
+};
+// Test-only faults (SetIncrementalFaultForTest), each for the next call that would reuse a snapshot.
+enum class IncrementalFault : std::uint8_t { kNone = 0, kBreakSnapshot = 1, kPerturbResult = 2 };
+#endif
+
 struct DecodeResult {
     std::string text;        // UTF-8 display text (▁ prefix stripped)
     std::string units;       // segmented pinyin (e.g. "ni'hao")
@@ -165,7 +207,8 @@ public:
 
     void SetUserSentenceEnabled(bool enabled);
     bool UserSentenceEnabled() const { return user_sentence_enabled_; }
-    UserSentence& MutableUserSentence() { return user_sentence_; }
+    // weave (SIME_WEAVE_INCREMENTAL): handing out the writable store bumps the generation.
+    UserSentence& MutableUserSentence();
     const UserSentence& GetUserSentence() const { return user_sentence_; }
     // Loads from disk. Returns false on missing/corrupt/vocab-mismatch
     // files; the in-memory state is left empty in those cases. The
@@ -256,6 +299,27 @@ public:
     // removed) instead of exact text (default off).
     void SetDedupByKey(bool on);
 #endif
+#if SIME_WEAVE_INCREMENTAL
+    // weave incremental decoding (weave-ime Docs/plans/phase-4.5-incremental.md). On by default in a
+    // build with the macro; off makes every DecodeSentence a full decode through the unchanged path.
+    // Switching, ResetIncremental and every change of the overlay, display casing, dedup by key, the
+    // user sentences or the decoder context bump the generation, which drops every snapshot.
+    void SetIncremental(bool on);
+    bool Incremental() const;
+    void ResetIncremental();
+    // Each warm call is also decoded in full and compared; a difference returns the full result and
+    // counts a fallback (default off: it doubles the work).
+    void SetIncrementalSelfCheck(bool on);
+    // Classify the changed columns of resumed calls (IncrementalStats::diff_*; default off).
+    void SetIncrementalDiagnostics(bool on);
+    IncrementalStats GetIncrementalStats() const;
+    DecodeInfo LastDecodeInfo() const;
+    // A full decode that neither reads nor changes the snapshots (the differential's reference).
+    std::vector<DecodeResult> DecodeSentenceFull(std::string_view input,
+                                                 const std::vector<TokenID>& context,
+                                                 std::size_t extra = 0) const;
+    void SetIncrementalFaultForTest(IncrementalFault fault);
+#endif
 private:
     // Lattice types
     struct Link {
@@ -272,6 +336,19 @@ private:
         std::vector<Link> es;
         NetStates states;
     };
+    // The edge list of a lattice column (DecodeSentence's output builder reads columns through it).
+    using ColumnEdges = std::function<const std::vector<Link>&(std::size_t)>;
+#if SIME_WEAVE_INCREMENTAL
+    // The lattice and beam of one normalised input. Columns are shared with the snapshot it was
+    // resumed from where they did not change (edges before the resume column, beams up to it).
+    struct Snapshot {
+        std::string norm;
+        std::uint64_t generation = 0;
+        std::vector<std::shared_ptr<const std::vector<Link>>> edges;  // norm.size() + 2
+        std::vector<std::shared_ptr<NetStates>> states;               // norm.size() + 2
+    };
+    static constexpr std::size_t kMaxSnapshots = 128;
+#endif
 
     // Search parameters
     static constexpr std::size_t NodeSize = 60;
@@ -345,6 +422,36 @@ private:
     // Beam search
     State InitialState(const std::vector<TokenID>& context = {}) const;
     void Process(std::vector<Node>& net) const;
+    // One step of Process: state `value` takes edge `word` into `target` (word.end's column).
+    void Relax(const State& value, const Link& word, NetStates& target) const;
+
+    // DecodeSentence's parts: the lattice edges of the normalised input (InitNet, penalties, pruning,
+    // overlay), the full decode, and the candidate lists from a processed lattice.
+    void BuildSentenceNet(std::string_view lower, std::vector<Node>& net) const;
+    std::vector<DecodeResult> DecodeSentenceUnlocked(std::string_view input,
+                                                     const std::vector<TokenID>& context,
+                                                     std::size_t extra) const;
+    std::vector<DecodeResult> SentenceResults(std::string_view input, std::string_view lower,
+                                              const std::vector<std::size_t>& raw_off,
+                                              const std::vector<State>& tail,
+                                              std::size_t net_size, const ColumnEdges& column,
+                                              std::size_t extra) const;
+#if SIME_WEAVE_INCREMENTAL
+    std::vector<DecodeResult> DecodeSession(std::string_view input,
+                                            const std::vector<TokenID>& context,
+                                            std::size_t extra) const;
+    std::unique_ptr<Snapshot> FullSnapshot(const std::string& lower,
+                                           const std::vector<TokenID>& context) const;
+    // nullptr when a consistency check fails.
+    std::unique_ptr<Snapshot> ResumeSnapshot(const Snapshot& base, const std::string& lower,
+                                             std::size_t& resume_col) const;
+    // Process over a snapshot from column k: columns before k replay their edges that end after k.
+    void ProcessFrom(Snapshot& snap, std::size_t k) const;
+    void ClassifyColumn(const std::vector<Link>& before, const std::vector<Link>& after,
+                        std::size_t old_end) const;
+    void BumpGeneration() const;        // decode_mutex_ held
+    void BumpGenerationLocked() const;  // takes decode_mutex_
+#endif
     static std::vector<Link> Backtrace(const State& tail_state,
                                        std::size_t end);
 
@@ -400,6 +507,17 @@ private:
     // TokenizeContext's Cutter, built on first use.
     mutable std::once_flag cutter_once_;
     mutable std::unique_ptr<Cutter> cutter_;
+#if SIME_WEAVE_INCREMENTAL
+    // The composition's snapshots, each one's input a prefix of the next (decode_mutex_ guards them).
+    mutable std::vector<std::unique_ptr<Snapshot>> chain_;
+    mutable std::vector<TokenID> inc_context_;
+    mutable IncrementalStats inc_stats_;
+    mutable DecodeInfo last_info_;
+    mutable IncrementalFault inc_fault_ = IncrementalFault::kNone;
+    bool inc_on_ = true;
+    bool inc_self_check_ = false;
+    bool inc_diag_ = false;
+#endif
 };
 
 } // namespace sime

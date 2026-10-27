@@ -1,4 +1,4 @@
-// Modified by the weave-ime project (2026): ComputeEdgePenalties gains the SIME_WEAVE_PENALTY_RULE scoped English penalty; English DAT lookups gain SIME_WEAVE_CASE_FOLD (folded and, for a span with capitals, as-typed lookups merged per folded key) and AbbreviatePieces matches letters ignoring case under it; InitNet gains the SIME_WEAVE_LITERAL_EDGE literal-letters edge (with SIME_WEAVE_LITERAL_PER_LETTER and SIME_WEAVE_LITERAL_NONPINYIN); NormalizeInput, InitNet and DecodeSentence gain SIME_WEAVE_SPACE_BOUNDARY and SIME_WEAVE_RAW_CNT; adds Sime::TokenizeContext (Cutter over the last N code points of committed text; additive, no macro); adds the SIME_WEAVE_OVERLAY lexicon overlay (overlay English edges at a bounded cost with a history break, display casing, dedup by key; default 0); adds the candidate-contract provenance (edge flags kept through State and Backtrace, DecodeResult::segments and ::basis from DecodeSentence; additive, no macro).
+// Modified by the weave-ime project (2026): ComputeEdgePenalties gains the SIME_WEAVE_PENALTY_RULE scoped English penalty; English DAT lookups gain SIME_WEAVE_CASE_FOLD (folded and, for a span with capitals, as-typed lookups merged per folded key) and AbbreviatePieces matches letters ignoring case under it; InitNet gains the SIME_WEAVE_LITERAL_EDGE literal-letters edge (with SIME_WEAVE_LITERAL_PER_LETTER and SIME_WEAVE_LITERAL_NONPINYIN); NormalizeInput, InitNet and DecodeSentence gain SIME_WEAVE_SPACE_BOUNDARY and SIME_WEAVE_RAW_CNT; adds Sime::TokenizeContext (Cutter over the last N code points of committed text; additive, no macro); adds the SIME_WEAVE_OVERLAY lexicon overlay (overlay English edges at a bounded cost with a history break, display casing, dedup by key; default 0); adds the candidate-contract provenance (edge flags kept through State and Backtrace, DecodeResult::segments and ::basis from DecodeSentence; additive, no macro); DecodeSentence split into BuildSentenceNet / SentenceResults and Process into Relax, with segments filled only for emitted candidates (no output change); adds SIME_WEAVE_INCREMENTAL incremental decoding (snapshots per normalised prefix, Process resumed at the first changed column, generation counter, fallback; default 0).
 #include "sime.h"
 
 #include "cut.h"
@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <cstring>
 #include <functional>
 #include <sstream>
 #include <system_error>
@@ -189,22 +190,6 @@ void PushBestLayer2Entry(std::vector<DecodeResult>& best_entries,
 }
 
 #if SIME_WEAVE_OVERLAY
-// PushBestLayer2Entry keyed by `key` (Sime::DedupKey of the text) instead of the text.
-void PushBestLayer2EntryKeyed(std::vector<DecodeResult>& best_entries,
-                              std::unordered_map<std::string, std::size_t>& index_by_key,
-                              const std::string& key, DecodeResult candidate) {
-    auto it = index_by_key.find(key);
-    if (it == index_by_key.end()) {
-        index_by_key.emplace(key, best_entries.size());
-        best_entries.push_back(std::move(candidate));
-        return;
-    }
-    auto& current = best_entries[it->second];
-    if (BetterLayer2Entry(candidate, current)) {
-        current = std::move(candidate);
-    }
-}
-
 std::string FoldAsciiLower(std::string_view s) {
     std::string out(s);
     for (char& c : out) {
@@ -300,9 +285,26 @@ bool Sime::GruReady() const {
 
 void Sime::SetUserSentenceEnabled(bool enabled) {
     user_sentence_enabled_ = enabled;
+#if SIME_WEAVE_INCREMENTAL
+    BumpGenerationLocked();
+#endif
+}
+
+UserSentence& Sime::MutableUserSentence() {
+#if SIME_WEAVE_INCREMENTAL
+    BumpGenerationLocked();
+#endif
+    return user_sentence_;
 }
 
 bool Sime::LoadUserSentence(const std::filesystem::path& path) {
+#if SIME_WEAVE_INCREMENTAL
+    // Bumps the generation once the store has been (re)loaded, on every return path.
+    struct Bump {
+        const Sime* e;
+        ~Bump() { e->BumpGenerationLocked(); }
+    } bump{this};
+#endif
     if (user_sentence_.Load(path, vocab_sig_)) {
         return true;  // fast path: vocab unchanged
     }
@@ -350,6 +352,9 @@ void Sime::LearnUserSentence(const std::vector<TokenID>& context,
     }
 #endif
     user_sentence_.Add(context, sentence);
+#if SIME_WEAVE_INCREMENTAL
+    BumpGenerationLocked();
+#endif
 }
 
 #if SIME_WEAVE_OVERLAY
@@ -358,29 +363,47 @@ bool Sime::LoadOverlay(const OverlayConfig& config, std::string* error) {
     if (!ready_) {
         if (error) *error = "engine not ready";
         overlay_.Clear();
+#if SIME_WEAVE_INCREMENTAL
+        BumpGeneration();
+#endif
         return false;
     }
+#if SIME_WEAVE_INCREMENTAL
+    BumpGeneration();
+#endif
     return overlay_.Load(config, dict_, error);
 }
 
 void Sime::ClearOverlay() {
     std::lock_guard<std::mutex> lock(decode_mutex_);
     overlay_.Clear();
+#if SIME_WEAVE_INCREMENTAL
+    BumpGeneration();
+#endif
 }
 
 bool Sime::SetOverlayLayerEnabled(LexLayer layer, bool enabled) {
     std::lock_guard<std::mutex> lock(decode_mutex_);
+#if SIME_WEAVE_INCREMENTAL
+    BumpGeneration();
+#endif
     return overlay_.SetEnabled(layer, enabled, dict_);
 }
 
 void Sime::SetDisplayCasing(DisplayCasing casing) {
     std::lock_guard<std::mutex> lock(decode_mutex_);
     casing_ = casing;
+#if SIME_WEAVE_INCREMENTAL
+    BumpGeneration();
+#endif
 }
 
 void Sime::SetDedupByKey(bool on) {
     std::lock_guard<std::mutex> lock(decode_mutex_);
     dedup_by_key_ = on;
+#if SIME_WEAVE_INCREMENTAL
+    BumpGeneration();
+#endif
 }
 
 float_t Sime::StepCost(Scorer::Pos pos, TokenID id, Scorer::Pos& next) const {
@@ -1825,47 +1848,54 @@ State Sime::InitialState(const std::vector<TokenID>& context) const {
     return State(0.0, 0, pos, nullptr, last);
 }
 
+namespace {
+// weave-ime candidate contract: the edge's flags travel with the state (Backtrace).
+template <class L>
+std::uint8_t EdgeFlags(const L& l) {
+    return static_cast<std::uint8_t>((l.english ? State::kEdgeEnglish : 0) |
+                                     (l.expansion ? State::kEdgeExpansion : 0));
+}
+}  // namespace
+
+void Sime::Relax(const State& value, const Link& word, NetStates& target) const {
+#if SIME_WEAVE_SPACE_BOUNDARY
+    if (word.id == SpaceToken) {
+        // weave: a typed space carries the LM state through
+        // unchanged at zero cost (no token, no context reset).
+        target.Insert(State(value.score, word.end, value.pos, &value,
+                            word.id, word.pieces, EdgeFlags(word)));
+        return;
+    }
+#endif
+    Scorer::Pos cur_pos = value.pos;
+    Scorer::Pos next_pos{};
+#if SIME_WEAVE_OVERLAY
+    float_t step = StepCost(cur_pos, word.id, next_pos);
+#else
+    float_t step = scorer_.ScoreMove(cur_pos, word.id, next_pos);
+#endif
+    scorer_.Back(next_pos);
+    cur_pos = next_pos;
+
+    float_t user_adjust = 0.0;
+    if (user_sentence_enabled_) {
+        user_adjust = user_sentence_.CostAdjustment(
+            value.backtrace_token, word.id, step);
+    }
+    float_t next_cost =
+        value.score + step + word.penalty + user_adjust;
+    State next(next_cost, word.end, cur_pos, &value, word.id,
+               word.pieces, EdgeFlags(word));
+    target.Insert(next);
+}
+
 void Sime::Process(std::vector<Node>& net) const {
-    // weave-ime candidate contract: the edge's flags travel with the state (Backtrace).
-    auto EdgeFlags = [](const Link& l) -> std::uint8_t {
-        return static_cast<std::uint8_t>((l.english ? State::kEdgeEnglish : 0) |
-                                         (l.expansion ? State::kEdgeExpansion : 0));
-    };
     for (std::size_t col = 0; col < net.size(); ++col) {
         auto& column = net[col];
         for (auto it = column.states.begin(); it != column.states.end(); ++it) {
             const auto& value = *it;
             for (const auto& word : column.es) {
-#if SIME_WEAVE_SPACE_BOUNDARY
-                if (word.id == SpaceToken) {
-                    // weave: a typed space carries the LM state through
-                    // unchanged at zero cost (no token, no context reset).
-                    net[word.end].states.Insert(
-                        State(value.score, word.end, value.pos, &value,
-                              word.id, word.pieces, EdgeFlags(word)));
-                    continue;
-                }
-#endif
-                Scorer::Pos cur_pos = value.pos;
-                Scorer::Pos next_pos{};
-#if SIME_WEAVE_OVERLAY
-                float_t step = StepCost(cur_pos, word.id, next_pos);
-#else
-                float_t step = scorer_.ScoreMove(cur_pos, word.id, next_pos);
-#endif
-                scorer_.Back(next_pos);
-                cur_pos = next_pos;
-
-                float_t user_adjust = 0.0;
-                if (user_sentence_enabled_) {
-                    user_adjust = user_sentence_.CostAdjustment(
-                        value.backtrace_token, word.id, step);
-                }
-                float_t next_cost =
-                    value.score + step + word.penalty + user_adjust;
-                State next(next_cost, word.end, cur_pos, &value, word.id,
-                           word.pieces, EdgeFlags(word));
-                net[word.end].states.Insert(next);
+                Relax(value, word, net[word.end].states);
             }
         }
     }
@@ -1962,6 +1992,33 @@ std::vector<DecodeResult> Sime::DecodeSentence(
     const std::vector<TokenID>& context,
     std::size_t extra) const {
     std::lock_guard<std::mutex> lock(decode_mutex_);
+#if SIME_WEAVE_INCREMENTAL
+    if (inc_on_) return DecodeSession(input, context, extra);
+    ++inc_stats_.decodes;
+    ++inc_stats_.full;
+    last_info_ = {};
+#endif
+    return DecodeSentenceUnlocked(input, context, extra);
+}
+
+void Sime::BuildSentenceNet(std::string_view lower, std::vector<Node>& net) const {
+#if SIME_WEAVE_OVERLAY
+    std::vector<std::vector<Link>> ov_edges;
+    InitNet(lower, net, /*expansion=*/true, &ov_edges);
+#else
+    InitNet(lower, net, /*expansion=*/true);
+#endif
+    ComputeEdgePenalties(net, lower);
+    for (auto& col : net) PruneNode(col.es);
+#if SIME_WEAVE_OVERLAY
+    AppendOverlayEdges(net, ov_edges, lower);
+#endif
+}
+
+std::vector<DecodeResult> Sime::DecodeSentenceUnlocked(
+    std::string_view input,
+    const std::vector<TokenID>& context,
+    std::size_t extra) const {
     std::vector<DecodeResult> results;
     if (!ready_ || input.empty()) return results;
     MaybeTrimCaches();
@@ -1972,6 +2029,28 @@ std::vector<DecodeResult> Sime::DecodeSentence(
     std::string lower = NormalizeInput(input, &raw_off);
     if (lower.empty()) return results;
 
+    std::vector<Node> net;
+    BuildSentenceNet(lower, net);
+
+    for (auto& col : net) col.states.SetMaxTop(BeamSize);
+    State init = InitialState(context);
+    net[0].states.Insert(init);
+    Process(net);
+
+    return SentenceResults(input, lower, raw_off, net.back().states.GetStates(), net.size(),
+                           [&net](std::size_t c) -> const std::vector<Link>& { return net[c].es; },
+                           extra);
+}
+
+std::vector<DecodeResult> Sime::SentenceResults(
+    std::string_view input,
+    std::string_view lower,
+    const std::vector<std::size_t>& raw_off,
+    const std::vector<State>& tail,
+    std::size_t net_size,
+    const ColumnEdges& column,
+    std::size_t extra) const {
+    std::vector<DecodeResult> results;
     const std::size_t total = lower.size();
     // Layer 2 cnt: normalised edge end by default; with SIME_WEAVE_RAW_CNT the
     // raw-input bytes consumed (the whole input once the edge reaches the end
@@ -1984,24 +2063,6 @@ std::vector<DecodeResult> Sime::DecodeSentence(
 #endif
     };
 
-    std::vector<Node> net;
-#if SIME_WEAVE_OVERLAY
-    std::vector<std::vector<Link>> ov_edges;
-    InitNet(lower, net, /*expansion=*/true, &ov_edges);
-#else
-    InitNet(lower, net, /*expansion=*/true);
-#endif
-    ComputeEdgePenalties(net, lower);
-    for (auto& col : net) PruneNode(col.es);
-#if SIME_WEAVE_OVERLAY
-    AppendOverlayEdges(net, ov_edges, lower);
-#endif
-
-    for (auto& col : net) col.states.SetMaxTop(BeamSize);
-    State init = InitialState(context);
-    net[0].states.Insert(init);
-    Process(net);
-
     // `dedup` tracks texts already emitted in `results`; Layer 2 checks
     // against it to avoid duplicating a candidate that made it into Layer 1.
     // Layer 1 uses its own local dedup during beam scan so that beam members
@@ -2013,15 +2074,17 @@ std::vector<DecodeResult> Sime::DecodeSentence(
     // === Layer 1: Full sentence N-best ===
     // Scan the whole beam, sort by score, take top (1 + extra).
     // (penalties are already in beam scores via edge.penalty)
+    // weave-ime contract: segments are filled only for the emitted candidates (texts are unique
+    // among the scanned ones, so each candidate keeps its path by text).
     {
-        const auto tail = net.back().states.GetStates();
         const std::size_t scan =
             std::min<std::size_t>(BeamSize, tail.size());
         std::vector<DecodeResult> l1;
         l1.reserve(scan);
         std::unordered_set<std::string> l1_seen;
+        std::unordered_map<std::string, std::vector<Link>> l1_path;
         for (std::size_t rank = 0; rank < scan; ++rank) {
-            auto path = Backtrace(tail[rank], net.size() - 1);
+            auto path = Backtrace(tail[rank], net_size - 1);
             if (path.empty()) continue;
             std::string text = ExtractText(path, lower);
 #if SIME_WEAVE_OVERLAY
@@ -2035,8 +2098,9 @@ std::vector<DecodeResult> Sime::DecodeSentence(
                           ExtractTokens(path),
                           -tail[rank].score,
                           input.size(),
-                          ExtractSegments(path, lower, raw_off, input.size()),
+                          {},
                           ScoreBasis::kSentence});
+            l1_path.emplace(l1.back().text, std::move(path));
         }
         std::sort(l1.begin(), l1.end(),
                   [](const DecodeResult& a, const DecodeResult& b) {
@@ -2051,6 +2115,7 @@ std::vector<DecodeResult> Sime::DecodeSentence(
 #else
             dedup.insert(l1[i].text);
 #endif
+            l1[i].segments = ExtractSegments(l1_path.at(l1[i].text), lower, raw_off, input.size());
             results.push_back(std::move(l1[i]));
         }
     }
@@ -2060,25 +2125,41 @@ std::vector<DecodeResult> Sime::DecodeSentence(
     // already in the score so no separate exact/abbrev tiering.
     const std::size_t l2_start = results.size();
     std::vector<DecodeResult> best_l2;
+    std::vector<Link> best_l2_edge;  // the edge of each best_l2 entry (its segment is filled last)
     std::unordered_map<std::string, std::size_t> l2_index_by_text;
+    // The best entry per text (per DedupKey with the overlay); BetterLayer2Entry decides.
+    auto push_l2 = [&](std::string key, DecodeResult candidate, const Link& edge) {
+        auto it = l2_index_by_text.find(key);
+        if (it == l2_index_by_text.end()) {
+            l2_index_by_text.emplace(std::move(key), best_l2.size());
+            best_l2.push_back(std::move(candidate));
+            best_l2_edge.push_back(edge);
+            return;
+        }
+        if (BetterLayer2Entry(candidate, best_l2[it->second])) {
+            best_l2[it->second] = std::move(candidate);
+            best_l2_edge[it->second] = edge;
+        }
+    };
 
     // Skip leading apostrophe-only columns (see DecodeNumSentence).
     std::size_t l2_col = 0;
-    while (l2_col < total && net[l2_col].es.size() == 1 &&
-           IsNoToken(net[l2_col].es[0].id)) {
+    while (l2_col < total && column(l2_col).size() == 1 &&
+           IsNoToken(column(l2_col)[0].id)) {
         ++l2_col;
     }
-    for (const auto& edge : net[l2_col].es) {
+    for (const auto& edge : column(l2_col)) {
         if (IsNoToken(edge.id)) continue;
 
         std::u32string text_u32 = ToText(edge, lower);
         if (text_u32.empty()) continue;
         std::string text_utf8 = TextFromU32(text_u32);
 #if SIME_WEAVE_OVERLAY
-        const std::string text_key = DedupKey(text_utf8);
+        std::string text_key = DedupKey(text_utf8);
         if (dedup.contains(text_key)) continue;
 #else
         if (dedup.contains(text_utf8)) continue;
+        std::string text_key = text_utf8;
 #endif
 
         std::size_t distance = (total > edge.end) ? (total - edge.end) : 0;
@@ -2106,37 +2187,362 @@ std::vector<DecodeResult> Sime::DecodeSentence(
         std::string edge_py = edge.pieces
             ? AbbreviatePieces(edge.pieces, slice)
             : "";
+        push_l2(std::move(text_key),
+                {std::move(text_utf8), std::move(edge_py),
+                 ExtractTokens({edge}), score, l2_cnt(edge.end),
+                 {}, ScoreBasis::kWordAlt},
+                edge);
+    }
+
+    for (std::size_t i = 0; i < best_l2.size(); ++i) {
+        const Link& edge = best_l2_edge[i];
         std::vector<Segment> edge_seg(1);  // weave-ime contract: [0, the edge's raw end)
         edge_seg[0].end = edge.end >= total ? input.size() : raw_off[edge.end];
         FillSegment(edge, lower, edge_seg[0]);
-#if SIME_WEAVE_OVERLAY
-        PushBestLayer2EntryKeyed(
-            best_l2,
-            l2_index_by_text,
-            text_key,
-            {std::move(text_utf8), std::move(edge_py),
-             ExtractTokens({edge}), score, l2_cnt(edge.end),
-             std::move(edge_seg), ScoreBasis::kWordAlt});
-#else
-        PushBestLayer2Entry(
-            best_l2,
-            l2_index_by_text,
-            {std::move(text_utf8), std::move(edge_py),
-             ExtractTokens({edge}), score, l2_cnt(edge.end),
-             std::move(edge_seg), ScoreBasis::kWordAlt});
-#endif
-    }
-
-    for (auto& entry : best_l2) {
-        results.push_back(std::move(entry));
+        best_l2[i].segments = std::move(edge_seg);
+        results.push_back(std::move(best_l2[i]));
     }
     auto by_score = [](const DecodeResult& a, const DecodeResult& b) {
         return a.score > b.score;
     };
-    std::sort(results.begin() + l2_start, results.end(), by_score);
+    std::sort(results.begin() + static_cast<std::ptrdiff_t>(l2_start), results.end(), by_score);
 
     return results;
 }
+
+#if SIME_WEAVE_INCREMENTAL
+namespace {
+
+template <class L>
+bool SameLink(const L& a, const L& b) {
+    return a.start == b.start && a.end == b.end && a.id == b.id && a.pieces == b.pieces &&
+           std::memcmp(&a.penalty, &b.penalty, sizeof a.penalty) == 0 &&
+           a.expansion == b.expansion && a.english == b.english;
+}
+
+template <class L>
+bool SameEdges(const std::vector<L>& a, const std::vector<L>& b) {
+    if (a.size() != b.size()) return false;
+    for (std::size_t i = 0; i < a.size(); ++i)
+        if (!SameLink(a[i], b[i])) return false;
+    return true;
+}
+
+bool SameSegment(const Segment& a, const Segment& b) {
+    return a.start == b.start && a.end == b.end && a.text == b.text && a.typed_text == b.typed_text &&
+           a.canonical_text == b.canonical_text && a.kind == b.kind && a.layer == b.layer &&
+           a.sources == b.sources && a.token == b.token && a.units == b.units &&
+           a.expansion == b.expansion;
+}
+
+// Every field of every candidate, scores bit for bit (the self-check).
+bool SameResults(const std::vector<DecodeResult>& a, const std::vector<DecodeResult>& b) {
+    if (a.size() != b.size()) return false;
+    for (std::size_t i = 0; i < a.size(); ++i) {
+        const auto& x = a[i];
+        const auto& y = b[i];
+        if (x.text != y.text || x.units != y.units || x.tokens != y.tokens || x.cnt != y.cnt ||
+            x.basis != y.basis || std::memcmp(&x.score, &y.score, sizeof x.score) != 0 ||
+            x.segments.size() != y.segments.size())
+            return false;
+        for (std::size_t s = 0; s < x.segments.size(); ++s)
+            if (!SameSegment(x.segments[s], y.segments[s])) return false;
+    }
+    return true;
+}
+
+std::size_t CountStates(NetStates& states) {
+    std::size_t n = 0;
+    for (auto it = states.begin(); it != states.end(); ++it) ++n;
+    return n;
+}
+
+}  // namespace
+
+void Sime::BumpGeneration() const {
+    ++inc_stats_.generation;
+    chain_.clear();
+    inc_stats_.snapshots = 0;
+}
+
+void Sime::BumpGenerationLocked() const {
+    std::lock_guard<std::mutex> lock(decode_mutex_);
+    BumpGeneration();
+}
+
+void Sime::SetIncremental(bool on) {
+    std::lock_guard<std::mutex> lock(decode_mutex_);
+    inc_on_ = on;
+    BumpGeneration();
+}
+
+bool Sime::Incremental() const {
+    std::lock_guard<std::mutex> lock(decode_mutex_);
+    return inc_on_;
+}
+
+void Sime::ResetIncremental() {
+    std::lock_guard<std::mutex> lock(decode_mutex_);
+    BumpGeneration();
+}
+
+void Sime::SetIncrementalSelfCheck(bool on) {
+    std::lock_guard<std::mutex> lock(decode_mutex_);
+    inc_self_check_ = on;
+}
+
+void Sime::SetIncrementalDiagnostics(bool on) {
+    std::lock_guard<std::mutex> lock(decode_mutex_);
+    inc_diag_ = on;
+}
+
+IncrementalStats Sime::GetIncrementalStats() const {
+    std::lock_guard<std::mutex> lock(decode_mutex_);
+    return inc_stats_;
+}
+
+DecodeInfo Sime::LastDecodeInfo() const {
+    std::lock_guard<std::mutex> lock(decode_mutex_);
+    return last_info_;
+}
+
+void Sime::SetIncrementalFaultForTest(IncrementalFault fault) {
+    std::lock_guard<std::mutex> lock(decode_mutex_);
+    inc_fault_ = fault;
+}
+
+std::vector<DecodeResult> Sime::DecodeSentenceFull(
+    std::string_view input,
+    const std::vector<TokenID>& context,
+    std::size_t extra) const {
+    std::lock_guard<std::mutex> lock(decode_mutex_);
+    return DecodeSentenceUnlocked(input, context, extra);
+}
+
+std::unique_ptr<Sime::Snapshot> Sime::FullSnapshot(const std::string& lower,
+                                                   const std::vector<TokenID>& context) const {
+    std::vector<Node> net;
+    BuildSentenceNet(lower, net);
+    auto snap = std::make_unique<Snapshot>();
+    snap->norm = lower;
+    snap->generation = inc_stats_.generation;
+    snap->edges.resize(net.size());
+    snap->states.resize(net.size());
+    for (std::size_t c = 0; c < net.size(); ++c) {
+        snap->edges[c] = std::make_shared<const std::vector<Link>>(std::move(net[c].es));
+        snap->states[c] = std::make_shared<NetStates>();
+        snap->states[c]->SetMaxTop(BeamSize);
+    }
+    snap->states[0]->Insert(InitialState(context));
+    ProcessFrom(*snap, 0);
+    return snap;
+}
+
+void Sime::ProcessFrom(Snapshot& snap, std::size_t k) const {
+    // Columns before k are final and shared; replaying their edges that end after k, in Process's
+    // order (column, state, edge), gives each later column the insertions a full decode makes first.
+    for (std::size_t col = 0; col < k; ++col) {
+        auto& states = *snap.states[col];
+        const auto& edges = *snap.edges[col];
+        for (auto it = states.begin(); it != states.end(); ++it) {
+            for (const auto& word : edges) {
+                if (word.end > k) Relax(*it, word, *snap.states[word.end]);
+            }
+        }
+    }
+    for (std::size_t col = k; col < snap.edges.size(); ++col) {
+        auto& states = *snap.states[col];
+        const auto& edges = *snap.edges[col];
+        for (auto it = states.begin(); it != states.end(); ++it) {
+            for (const auto& word : edges) {
+                Relax(*it, word, *snap.states[word.end]);
+            }
+        }
+    }
+}
+
+void Sime::ClassifyColumn(const std::vector<Link>& before, const std::vector<Link>& after,
+                          std::size_t old_end) const {
+    // The identity of an edge, without its penalty.
+    auto same_id = [](const Link& a, const Link& b) {
+        return a.start == b.start && a.end == b.end && a.id == b.id && a.pieces == b.pieces &&
+               a.expansion == b.expansion && a.english == b.english;
+    };
+    bool append = false, old_end_changed = false, penalty = false, other = false;
+    for (const auto& e : after) append = append || e.end > old_end;
+    // Match each old edge to the first unused new edge with the same identity.
+    std::vector<bool> used(after.size(), false);
+    std::vector<std::size_t> match;  // the new index of each matched old edge, in old order
+    for (const auto& e : before) {
+        std::size_t j = 0;
+        while (j < after.size() && (used[j] || !same_id(after[j], e))) ++j;
+        if (j == after.size()) {
+            (e.end >= old_end ? old_end_changed : other) = true;
+            continue;
+        }
+        used[j] = true;
+        match.push_back(j);
+        if (std::memcmp(&e.penalty, &after[j].penalty, sizeof e.penalty) != 0) penalty = true;
+    }
+    for (std::size_t j = 0; j < after.size(); ++j)
+        if (!used[j] && after[j].end <= old_end) (after[j].end == old_end ? old_end_changed : other) = true;
+    const bool order = !std::is_sorted(match.begin(), match.end());
+    inc_stats_.diff_append += append;
+    inc_stats_.diff_old_end += old_end_changed;
+    inc_stats_.diff_penalty += penalty;
+    inc_stats_.diff_order += order;
+    inc_stats_.diff_other += other;
+}
+
+std::unique_ptr<Sime::Snapshot> Sime::ResumeSnapshot(const Snapshot& base, const std::string& lower,
+                                                     std::size_t& resume_col) const {
+    const std::size_t old_total = base.norm.size();
+    // Consistency checks on the snapshot: one edge list and one beam per column, none missing, its
+    // input a proper prefix of the new one, and its column 0 holding just the initial state.
+    if (base.edges.size() != old_total + 2 || base.states.size() != old_total + 2 ||
+        lower.size() <= old_total || lower.compare(0, old_total, base.norm) != 0)
+        return nullptr;
+    for (std::size_t c = 0; c < base.edges.size(); ++c)
+        if (!base.edges[c] || !base.states[c]) return nullptr;
+    if (CountStates(*base.states[0]) != 1) return nullptr;
+
+    std::vector<Node> net;
+    BuildSentenceNet(lower, net);
+    // k: the first column whose edges differ. The old end column held only the end sentinel, so it
+    // always differs; a k past it means the snapshot is not what it claims to be.
+    std::size_t k = 0;
+    while (k <= old_total && SameEdges(*base.edges[k], net[k].es)) ++k;
+    if (k > old_total) return nullptr;
+    if (inc_diag_) {
+        for (std::size_t c = k; c < old_total; ++c)
+            if (!SameEdges(*base.edges[c], net[c].es)) ClassifyColumn(*base.edges[c], net[c].es, old_total);
+    }
+
+    auto snap = std::make_unique<Snapshot>();
+    snap->norm = lower;
+    snap->generation = inc_stats_.generation;
+    snap->edges.resize(net.size());
+    snap->states.resize(net.size());
+    for (std::size_t c = 0; c < net.size(); ++c) {
+        if (c < k) {
+            snap->edges[c] = base.edges[c];
+        } else {
+            snap->edges[c] = std::make_shared<const std::vector<Link>>(std::move(net[c].es));
+        }
+        if (c <= k) {
+            snap->states[c] = base.states[c];
+        } else {
+            snap->states[c] = std::make_shared<NetStates>();
+            snap->states[c]->SetMaxTop(BeamSize);
+        }
+    }
+    ProcessFrom(*snap, k);
+    if (inc_diag_) {
+        for (std::size_t c = k + 1; c < snap->states.size(); ++c)
+            inc_stats_.capped_redone += CountStates(*snap->states[c]) >= SIME_WEAVE_COLUMN_BEAM_SIZE;
+    }
+    resume_col = k;
+    return snap;
+}
+
+std::vector<DecodeResult> Sime::DecodeSession(
+    std::string_view input,
+    const std::vector<TokenID>& context,
+    std::size_t extra) const {
+    ++inc_stats_.decodes;
+    last_info_ = {};
+    if (context != inc_context_) {  // a new decoder context: no snapshot applies
+        BumpGeneration();
+        inc_context_ = context;
+    }
+    std::vector<DecodeResult> results;
+    if (!ready_ || input.empty()) {
+        ++inc_stats_.full;
+        return results;
+    }
+    MaybeTrimCaches();
+    std::vector<std::size_t> raw_off;
+    std::string lower = NormalizeInput(input, &raw_off);
+    if (lower.empty()) {
+        ++inc_stats_.full;
+        return results;
+    }
+
+    // Q3: keep the snapshots that are prefixes of the new input when it extends or shortens the
+    // composition; anything else (an edit inside it) drops them all.
+    if (!chain_.empty() && chain_.back()->generation != inc_stats_.generation) chain_.clear();
+    if (!chain_.empty()) {
+        const std::string& top = chain_.back()->norm;
+        const bool extends = lower.size() >= top.size() && lower.compare(0, top.size(), top) == 0;
+        const bool shrinks = lower.size() < top.size() && top.compare(0, lower.size(), lower) == 0;
+        if (!extends && !shrinks) chain_.clear();
+        while (!chain_.empty() && chain_.back()->norm.size() > lower.size()) chain_.pop_back();
+    }
+
+    DecodeInfo info;
+    const Snapshot* snap = nullptr;
+    if (!chain_.empty() && chain_.back()->norm != lower && inc_fault_ == IncrementalFault::kBreakSnapshot) {
+        inc_fault_ = IncrementalFault::kNone;
+        chain_.back()->states.pop_back();  // fails the consistency check below
+    }
+    if (!chain_.empty() && chain_.back()->norm == lower) {
+        snap = chain_.back().get();
+        info.kind = DecodeKind::kSame;
+        info.resume_col = snap->edges.size();
+        ++inc_stats_.same;
+    } else if (!chain_.empty()) {
+        std::size_t k = 0;
+        auto next = ResumeSnapshot(*chain_.back(), lower, k);
+        if (next) {
+            info.kind = DecodeKind::kResume;
+            info.resume_col = k;
+            ++inc_stats_.resumed;
+            inc_stats_.columns += next->edges.size();
+            inc_stats_.columns_redone += next->edges.size() - k;
+            chain_.push_back(std::move(next));
+        } else {
+            info.kind = DecodeKind::kFallback;
+            ++inc_stats_.fallbacks;
+            chain_.clear();
+        }
+    }
+    if (chain_.empty()) {  // cold: a full decode, kept as the first snapshot
+        if (info.kind != DecodeKind::kFallback) {
+            info.kind = DecodeKind::kFull;
+            ++inc_stats_.full;
+        }
+        chain_.push_back(FullSnapshot(lower, context));
+    }
+    if (chain_.size() > kMaxSnapshots) chain_.erase(chain_.begin());
+    inc_stats_.snapshots = chain_.size();
+    if (!snap) snap = chain_.back().get();
+    info.warm = info.kind == DecodeKind::kSame || info.kind == DecodeKind::kResume;
+    info.columns = snap->edges.size();
+
+    results = SentenceResults(input, lower, raw_off, snap->states.back()->GetStates(),
+                              snap->edges.size(),
+                              [snap](std::size_t c) -> const std::vector<Link>& { return *snap->edges[c]; },
+                              extra);
+    if (info.warm && inc_fault_ == IncrementalFault::kPerturbResult) {
+        inc_fault_ = IncrementalFault::kNone;
+        if (!results.empty()) results[0].score = std::nextafter(results[0].score, 1e300);
+    }
+    if (info.warm && inc_self_check_) {
+        ++inc_stats_.self_checks;
+        auto full = DecodeSentenceUnlocked(input, context, extra);
+        if (!SameResults(results, full)) {
+            ++inc_stats_.fallbacks;
+            if (info.kind == DecodeKind::kSame) --inc_stats_.same; else --inc_stats_.resumed;
+            info.kind = DecodeKind::kFallback;
+            info.warm = false;
+            BumpGeneration();
+            results = std::move(full);
+        }
+    }
+    last_info_ = info;
+    return results;
+}
+#endif
 
 std::vector<DecodeResult> Sime::NextTokens(
     const std::vector<TokenID>& context,

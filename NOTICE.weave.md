@@ -61,8 +61,8 @@ Unchanged defaults: `SIME_WEAVE_EN_PENALTY` 2.5, `SIME_WEAVE_BEAM_SIZE` 20, `SIM
 `SIME_WEAVE_LITERAL_EDGE` 0 (and `SIME_WEAVE_LITERAL_MIN_LEN` 3,
 `SIME_WEAVE_LITERAL_PENALTY` 12.0, `SIME_WEAVE_LITERAL_PER_LETTER` 0.0,
 `SIME_WEAVE_LITERAL_NONPINYIN` 0), `SIME_WEAVE_SPACE_BOUNDARY` 0, the
-debug-only `SIME_WEAVE_BEAM_CHECK` 0 and `SIME_WEAVE_OVERLAY` 0 (Phase 4.5 Task 3, below);
-all equal upstream.
+debug-only `SIME_WEAVE_BEAM_CHECK` 0, `SIME_WEAVE_OVERLAY` 0 (Phase 4.5 Task 3, below) and
+`SIME_WEAVE_INCREMENTAL` 0 (Phase 4.5 Task 6, below); all equal upstream.
 
 **Upstream behaviour** is reproduced exactly by defining every macro to its
 upstream value: `PENALTY_RULE=0 EN_PENALTY_MIXED=8.0 EN_SHORT_EDGE_LEN=0
@@ -119,6 +119,38 @@ search, the scores, the text, `units`, `tokens`, `cnt` or the order of the list,
 byte-identically to the previous runs with the overlay compiled out and with it compiled in but
 empty (`benchmarks/results/phase45/contract/identity.md` there). The IDs and hashes of the contract
 are computed outside the fork (weave-ime `src/contract`).
+
+**Phase 4.5 Task 6 (2026-10-26): incremental decoding, `SIME_WEAVE_INCREMENTAL` (default 0).** With 0
+nothing below the refactor is compiled and every call decodes from scratch. With 1, `DecodeSentence` keeps
+a chain of snapshots for the current composition (normalised input, generation, per column a shared edge
+list and a shared beam). When the normalised input equals the last one, the lattice is reused; when it
+extends it, the edges are rebuilt with the unchanged code, compared column by column with the snapshot's,
+and `Process` resumes at the first column whose edges differ: the columns before it keep their beams, and
+their edges that end after it are replayed in `Process`'s order (column, state, edge), so every later
+column receives exactly the insertions of a full decode. A backspace pops the chain back to the longest
+snapshot that is a prefix; any other change (an edit inside the composition) is a cold full decode. The
+output (Layer 1, Layer 2, segments, counts) is rebuilt on every call. A generation counter drops every
+snapshot on `LoadOverlay`, `ClearOverlay`, `SetOverlayLayerEnabled`, `SetDisplayCasing`, `SetDedupByKey`,
+`SetUserSentenceEnabled`, `LoadUserSentence`, `LearnUserSentence`, `MutableUserSentence` (now defined in
+`src/sime.cc`), `SetIncremental`, `ResetIncremental` and a change of the decoder context. Runtime API:
+`SetIncremental` (on by default in a build with the macro; off = every call through the unchanged full
+path), `SetIncrementalSelfCheck` (each warm call also decoded in full and compared; a difference returns
+the full result), `SetIncrementalDiagnostics`, `GetIncrementalStats`, `LastDecodeInfo` (cold/warm and
+the resume column, for the candidate contract's `cache_state`), `DecodeSentenceFull` (a full decode that
+leaves the snapshots alone) and the test hook `SetIncrementalFaultForTest`. A failed consistency check on
+a snapshot (column counts, missing columns, the old end's sentinel, column 0's initial state) falls back
+to a full decode and is counted. weave-ime checks that every decode equals a full re-decode on every
+prefix and on seeded random typing sessions of every allowed set (`benchmarks/results/phase45/incremental/`
+there).
+
+**Refactor with no output change (Phase 4.5 Task 6, no macro).** `DecodeSentence` is split into
+`BuildSentenceNet` (InitNet, penalties, pruning, overlay edges), `DecodeSentenceUnlocked` and
+`SentenceResults` (Layer 1 and Layer 2 from a processed lattice), and `Process`'s inner step into `Relax`,
+so the full and the incremental paths share one implementation. Segments are now filled only for the
+candidates that are emitted (Layer 1 after the cut, Layer 2 once per kept entry) instead of for every
+scanned path and column-0 edge; candidate choice never reads segments. `PushBestLayer2EntryKeyed` is
+folded into `SentenceResults`. weave-ime checks that every allowed set decodes byte-identically to the
+previous runs, with and without the candidate contract.
 
 Modified files:
 
@@ -202,6 +234,11 @@ Modified files:
   `Sime::FillSegment` / `ExtractSegments`, `Overlay::Token::slot` and `Overlay::L0Sources`, as
   described above. `AsTyped` (the D5 as-typed casing helper) is now compiled without the overlay
   too, for a segment's typed casing.
+
+- `include/sime.h`, `src/sime.cc` (Phase 4.5 Task 6): `SIME_WEAVE_INCREMENTAL` and its API, types
+  (`DecodeKind`, `DecodeInfo`, `IncrementalStats`, `IncrementalFault`) and snapshot chain as described
+  above; the no-output-change refactor (`BuildSentenceNet`, `DecodeSentenceUnlocked`, `SentenceResults`,
+  `Relax`, segments for emitted candidates only).
 
 - `.gitattributes`: upstream's single rule `dict/*.bin filter=lfs diff=lfs
   merge=lfs -text` is replaced by `* -text`, so checkouts are byte-identical to
