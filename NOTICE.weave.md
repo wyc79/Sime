@@ -103,6 +103,23 @@ de-duplicate the candidate lists by ASCII-lowercased, space-free text instead of
 With the macro on and empty layers (or every layer switched off) decoding is byte-identical. The
 T9 path, `GetTokens` and `NextTokens` do not use the overlay.
 
+**Phase 4.5 Task 5 (2026-10-26): candidate-contract provenance (additive, no macro).** weave-ime's
+candidate contract (`Docs/plans/phase-4.5-candidate-contract.md` there) needs to know, per
+candidate, where each piece came from. `State` gains `backtrace_flags` (the English and expansion
+flags of the edge that led to it; it fills padding, so `sizeof(State)` is unchanged on 64-bit
+targets), `Process` sets it and `Backtrace` restores `Link::english` / `Link::expansion` from it.
+`DecodeResult` gains `segments` (per token link: raw-input byte span, text, typed and canonical
+casing, kind pinyin / English / literal, source layer and merged sources, L0 token, units) and
+`basis` (`kSentence` for Layer 1, `kWordAlt` for Layer 2); only `DecodeSentence` fills them, which
+now always records the raw offsets `NormalizeInput` already computed for `SIME_WEAVE_RAW_CNT`.
+With `SIME_WEAVE_OVERLAY=1`, `Overlay::Token` records the layer slot its spelling came from and
+`Overlay::L0Sources` the L3/L4 layers that list an L0 word. None of this feeds back into the
+search, the scores, the text, `units`, `tokens`, `cnt` or the order of the list, so like
+`TokenizeContext` it needs no `SIME_WEAVE_*` macro: weave-ime checks that every allowed set decodes
+byte-identically to the previous runs with the overlay compiled out and with it compiled in but
+empty (`benchmarks/results/phase45/contract/identity.md` there). The IDs and hashes of the contract
+are computed outside the fork (weave-ime `src/contract`).
+
 Modified files:
 
 - `include/sime.h`: search constants `EnglishPenalty`, `EnglishPenaltyShort`
@@ -178,6 +195,13 @@ Modified files:
   default 0): the overlay API and its use in `InitNet`, `PruneNode`, `InitialState`, `Process`,
   `ToText`, `DecodeSentence`, `DecodeStr`, `LearnUserSentence` and `TokenText` as described
   above; `CMakeLists.txt` adds `src/overlay.cc` to `sime_core`.
+
+- `include/sime.h`, `src/sime.cc`, `include/state.h`, `src/state.cc`, `include/overlay.h`,
+  `src/overlay.cc` (Phase 4.5 Task 5, additive, no macro): `SegmentKind`, `ScoreBasis`, the
+  `kSource*` layer bits, `Segment`, `DecodeResult::segments` / `::basis`, `State::backtrace_flags`,
+  `Sime::FillSegment` / `ExtractSegments`, `Overlay::Token::slot` and `Overlay::L0Sources`, as
+  described above. `AsTyped` (the D5 as-typed casing helper) is now compiled without the overlay
+  too, for a segment's typed casing.
 
 - `.gitattributes`: upstream's single rule `dict/*.bin filter=lfs diff=lfs
   merge=lfs -text` is replaced by `* -text`, so checkouts are byte-identical to

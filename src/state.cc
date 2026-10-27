@@ -1,4 +1,4 @@
-// Modified by the weave-ime project (2026): NetStates::Insert gains SIME_WEAVE_BEAM_EXACT (bucket keys and state count kept exact, so eviction removes the globally worst state), SIME_WEAVE_BEAM_CHECK and BeamInvariantHolds().
+// Modified by the weave-ime project (2026): NetStates::Insert gains SIME_WEAVE_BEAM_EXACT (bucket keys and state count kept exact, so eviction removes the globally worst state), SIME_WEAVE_BEAM_CHECK and BeamInvariantHolds(); State keeps the edge's flags (backtrace_flags, additive, no macro).
 #include "state.h"
 
 #include <algorithm>
@@ -15,12 +15,14 @@ State::State(float_t score,
              Scorer::Pos pos,
              const State* backtrace_state,
              TokenID backtrace_token,
-             const char* backtrace_pieces)
+             const char* backtrace_pieces,
+             std::uint8_t backtrace_flags)
     : score(score),
       now(now),
       pos(pos),
       backtrace_state(backtrace_state),
       backtrace_token(backtrace_token),
+      backtrace_flags(backtrace_flags),
       backtrace_pieces(backtrace_pieces) {}
 
 TopStates::TopStates(std::size_t size)

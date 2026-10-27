@@ -1,10 +1,11 @@
-// Modified by the weave-ime project (2026): adds SIME_WEAVE_BEAM_EXACT (exact column eviction), SIME_WEAVE_COLUMN_BEAM_SIZE (column state cap, default 48) and the SIME_WEAVE_BEAM_CHECK invariant check; weave default BEAM_EXACT=1 (see NOTICE.weave.md).
+// Modified by the weave-ime project (2026): adds SIME_WEAVE_BEAM_EXACT (exact column eviction), SIME_WEAVE_COLUMN_BEAM_SIZE (column state cap, default 48) and the SIME_WEAVE_BEAM_CHECK invariant check; weave default BEAM_EXACT=1; State keeps the edge's flags (backtrace_flags, additive, no macro) (see NOTICE.weave.md).
 #pragma once
 
 #include "common.h"
 #include "score.h"
 
 #include <cstddef>
+#include <cstdint>
 #include <map>
 #include <utility>
 #include <vector>
@@ -43,7 +44,15 @@ struct State {
     Scorer::Pos pos{};
     const State* backtrace_state = nullptr;
     TokenID backtrace_token = 0;
+    // weave-ime (additive, no macro): the flags of the edge that led here
+    // (kEdgeEnglish, kEdgeExpansion), so Backtrace can rebuild them for the
+    // candidate contract. Fills padding after backtrace_token: sizeof(State)
+    // is unchanged on 64-bit targets.
+    std::uint8_t backtrace_flags = 0;
     const char* backtrace_pieces = nullptr;
+
+    static constexpr std::uint8_t kEdgeEnglish = 1;
+    static constexpr std::uint8_t kEdgeExpansion = 2;
 
     State() = default;
 
@@ -52,7 +61,8 @@ struct State {
           Scorer::Pos pos,
           const State* backtrace_state,
           TokenID backtrace_token,
-          const char* backtrace_pieces = nullptr);
+          const char* backtrace_pieces = nullptr,
+          std::uint8_t backtrace_flags = 0);
 
     bool operator<(const State& r) const {
         return score < r.score;

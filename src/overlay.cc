@@ -1,4 +1,4 @@
-// Added by the weave-ime project (2026): the lexicon overlay behind SIME_WEAVE_OVERLAY (default 0; compiles to nothing then): layer files, cross-layer merge, bounded costs, L0 coverage and the overlay English DAT (see NOTICE.weave.md).
+// Added by the weave-ime project (2026): the lexicon overlay behind SIME_WEAVE_OVERLAY (default 0; compiles to nothing then): layer files, cross-layer merge, bounded costs, L0 coverage and the overlay English DAT; the contract's spelling slot and L0 cover sources (additive) (see NOTICE.weave.md).
 #include "overlay.h"
 
 #if SIME_WEAVE_OVERLAY
@@ -69,6 +69,7 @@ void Overlay::Clear() {
     by_key_.clear();
     dat_ = trie::DoubleArray();
     l0_canonical_.clear();
+    l0_sources_.clear();
     stats_ = OverlayStats{};
 }
 
@@ -168,6 +169,7 @@ void Overlay::Rebuild(const Dict& l0) {
     by_key_.clear();
     dat_ = trie::DoubleArray();
     l0_canonical_.clear();
+    l0_sources_.clear();
     stats_.entries = stats_.multi_source = stats_.forms = 0;
     stats_.covered_by_l0 = stats_.overlay_forms = 0;
 
@@ -268,7 +270,11 @@ void Overlay::Rebuild(const Dict& l0) {
                         // Only the term pack and the user dictionary may re-case an L0 word;
                         // ESDB's casing (lowercase when any) marks a common noun, not a
                         // canonical form, so L1 only adds words L0 lacks.
-                        if (form.slot >= static_cast<int>(LexLayer::L3)) l0_canonical_[id] = sp32;
+                        if (form.slot >= static_cast<int>(LexLayer::L3)) {
+                            l0_canonical_[id] = sp32;
+                            l0_sources_[id] |= e.sources & ((1u << static_cast<int>(LexLayer::L3)) |
+                                                            (1u << static_cast<int>(LexLayer::L4)));
+                        }
                     }
                 }
             }
@@ -278,7 +284,7 @@ void Overlay::Rebuild(const Dict& l0) {
             }
             dat_keys[typed].push_back(static_cast<std::uint32_t>(tokens_.size()));
             tokens_.push_back({typed, form.spelling, sp32, static_cast<float_t>(cost),
-                               static_cast<std::uint32_t>(n), e.sources});
+                               static_cast<std::uint32_t>(n), e.sources, form.slot});
         }
     }
     stats_.overlay_forms = tokens_.size();

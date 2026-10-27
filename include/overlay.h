@@ -1,4 +1,4 @@
-// Added by the weave-ime project (2026): the lexicon overlay (SIME_WEAVE_OVERLAY, default 0): extra English words from versioned layer files (L1 ESDB, L2 wordfreq, L3 term pack, L4 user), merged across layers, at a bounded cost (see NOTICE.weave.md).
+// Added by the weave-ime project (2026): the lexicon overlay (SIME_WEAVE_OVERLAY, default 0): extra English words from versioned layer files (L1 ESDB, L2 wordfreq, L3 term pack, L4 user), merged across layers, at a bounded cost; tokens keep the layer of their spelling and L0 words the L3/L4 layers that list them, for the candidate contract (additive) (see NOTICE.weave.md).
 #pragma once
 
 // SIME_WEAVE_OVERLAY=1: Sime can load lexicon layer files (weave-ime
@@ -70,6 +70,7 @@ public:
         float_t cost = 0.0;
         std::uint32_t entry = 0;
         unsigned sources = 0;       // bit i = layer slot i contributed
+        int slot = 0;               // the layer slot this typed key's spelling came from
     };
 
     // Reads and merges the layer files. On failure returns false, sets *error and leaves
@@ -93,6 +94,12 @@ public:
         auto it = l0_canonical_.find(id);
         return it == l0_canonical_.end() ? nullptr : &it->second;
     }
+    // Layer-slot bits (L3, L4) of the merged entries whose spelling covers an L0 token (0 if none):
+    // the candidate contract's sources for that L0 word.
+    unsigned L0Sources(TokenID id) const {
+        auto it = l0_sources_.find(id);
+        return it == l0_sources_.end() ? 0u : it->second;
+    }
     const OverlayStats& Stats() const { return stats_; }
 
 private:
@@ -112,6 +119,7 @@ private:
     std::vector<std::vector<std::uint32_t>> by_key_;  // DAT value -> token indices
     trie::DoubleArray dat_;
     std::unordered_map<TokenID, std::u32string> l0_canonical_;
+    std::unordered_map<TokenID, unsigned> l0_sources_;
     OverlayStats stats_;
 };
 

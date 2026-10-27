@@ -1,4 +1,4 @@
-// Modified by the weave-ime project (2026): ComputeEdgePenalties gains the SIME_WEAVE_PENALTY_RULE scoped English penalty; English DAT lookups gain SIME_WEAVE_CASE_FOLD (folded and, for a span with capitals, as-typed lookups merged per folded key) and AbbreviatePieces matches letters ignoring case under it; InitNet gains the SIME_WEAVE_LITERAL_EDGE literal-letters edge (with SIME_WEAVE_LITERAL_PER_LETTER and SIME_WEAVE_LITERAL_NONPINYIN); NormalizeInput, InitNet and DecodeSentence gain SIME_WEAVE_SPACE_BOUNDARY and SIME_WEAVE_RAW_CNT; adds Sime::TokenizeContext (Cutter over the last N code points of committed text; additive, no macro); adds the SIME_WEAVE_OVERLAY lexicon overlay (overlay English edges at a bounded cost with a history break, display casing, dedup by key; default 0).
+// Modified by the weave-ime project (2026): ComputeEdgePenalties gains the SIME_WEAVE_PENALTY_RULE scoped English penalty; English DAT lookups gain SIME_WEAVE_CASE_FOLD (folded and, for a span with capitals, as-typed lookups merged per folded key) and AbbreviatePieces matches letters ignoring case under it; InitNet gains the SIME_WEAVE_LITERAL_EDGE literal-letters edge (with SIME_WEAVE_LITERAL_PER_LETTER and SIME_WEAVE_LITERAL_NONPINYIN); NormalizeInput, InitNet and DecodeSentence gain SIME_WEAVE_SPACE_BOUNDARY and SIME_WEAVE_RAW_CNT; adds Sime::TokenizeContext (Cutter over the last N code points of committed text; additive, no macro); adds the SIME_WEAVE_OVERLAY lexicon overlay (overlay English edges at a bounded cost with a history break, display casing, dedup by key; default 0); adds the candidate-contract provenance (edge flags kept through State and Backtrace, DecodeResult::segments and ::basis from DecodeSentence; additive, no macro).
 #include "sime.h"
 
 #include "cut.h"
@@ -212,6 +212,7 @@ std::string FoldAsciiLower(std::string_view s) {
     }
     return out;
 }
+#endif
 
 bool IsAsciiLetter(char32_t c) { return (c >= U'a' && c <= U'z') || (c >= U'A' && c <= U'Z'); }
 char32_t LowerAscii(char32_t c) { return (c >= U'A' && c <= U'Z') ? c - U'A' + U'a' : c; }
@@ -241,7 +242,6 @@ std::u32string AsTyped(const std::u32string& text, std::string_view typed) {
     next_letter();
     return j < typed.size() ? text : out;
 }
-#endif
 
 // Vocabulary signature used to detect stale user-sentence files when the
 // LM is regenerated (new TokenIDs). LM file size + mtime is a cheap proxy
@@ -1086,6 +1086,73 @@ std::vector<TokenID> Sime::ExtractTokens(
     return ids;
 }
 
+void Sime::FillSegment(const Link& link, std::string_view input, Segment& seg) const {
+    std::u32string shown = ToText(link, input);
+    seg.text = TextFromU32(shown);
+    const std::string_view typed = link.end <= input.size() && link.start <= link.end
+        ? input.substr(link.start, link.end - link.start) : std::string_view();
+    seg.expansion = link.expansion;
+#if SIME_WEAVE_LITERAL_EDGE
+    if (link.id == LiteralToken) {
+        seg.kind = SegmentKind::kLiteral;
+        seg.typed_text = seg.canonical_text = seg.text;
+        seg.layer = seg.sources = 0;
+        seg.token = NotToken;
+        seg.units.assign(typed);  // as ExtractUnits
+        return;
+    }
+#endif
+    seg.kind = link.english ? SegmentKind::kEnglish : SegmentKind::kPinyin;
+    if (link.pieces && link.pieces[0] != '\0') seg.units = AbbreviatePieces(link.pieces, typed);
+    std::u32string canonical;
+#if SIME_WEAVE_OVERLAY
+    if (const auto* t = overlay_.TokenOf(link.id)) {
+        canonical = t->spelling32;
+        std::u32string as_typed = AsTyped(canonical, typed);
+        seg.canonical_text = TextFromU32(canonical);
+        seg.typed_text = TextFromU32(as_typed);
+        seg.layer = 1u << (1 + t->slot);
+        seg.sources = t->sources << 1;
+        seg.token = NotToken;
+        return;
+    }
+#endif
+    if (const char32_t* chars = dict_.TokenAt(link.id)) {
+        for (std::size_t i = 0; chars[i] != 0 && i < 64; ++i) canonical.push_back(chars[i]);
+    }
+    std::u32string as_typed = AsTyped(canonical, typed);  // ToText under kAsTyped
+    seg.layer = kSourceBase;
+    seg.sources = kSourceBase;
+    seg.token = link.id;
+#if SIME_WEAVE_OVERLAY
+    if (!overlay_.Empty()) {
+        if (const auto* c = overlay_.CanonicalForL0(link.id)) canonical = *c;
+        seg.sources |= overlay_.L0Sources(link.id) << 1;
+    }
+#endif
+    seg.canonical_text = TextFromU32(canonical);
+    seg.typed_text = TextFromU32(as_typed);
+}
+
+std::vector<Segment> Sime::ExtractSegments(const std::vector<Link>& path, std::string_view input,
+                                           const std::vector<std::size_t>& raw_off,
+                                           std::size_t raw_size) const {
+    auto raw = [&](std::size_t b) { return b >= input.size() ? raw_size : raw_off[b]; };
+    std::vector<Segment> segs;
+    for (const auto& link : path) {
+        if (IsNoToken(link.id)) {  // apostrophe / typed space: part of the segment before it
+            if (!segs.empty()) segs.back().end = raw(link.end);
+            continue;
+        }
+        Segment seg;
+        seg.start = segs.empty() ? 0 : segs.back().end;
+        seg.end = raw(link.end);
+        FillSegment(link, input, seg);
+        segs.push_back(std::move(seg));
+    }
+    return segs;
+}
+
 std::vector<DecodeResult> Sime::DecodeNumSentence(
     std::string_view nums,
     std::string_view start,
@@ -1759,6 +1826,11 @@ State Sime::InitialState(const std::vector<TokenID>& context) const {
 }
 
 void Sime::Process(std::vector<Node>& net) const {
+    // weave-ime candidate contract: the edge's flags travel with the state (Backtrace).
+    auto EdgeFlags = [](const Link& l) -> std::uint8_t {
+        return static_cast<std::uint8_t>((l.english ? State::kEdgeEnglish : 0) |
+                                         (l.expansion ? State::kEdgeExpansion : 0));
+    };
     for (std::size_t col = 0; col < net.size(); ++col) {
         auto& column = net[col];
         for (auto it = column.states.begin(); it != column.states.end(); ++it) {
@@ -1770,7 +1842,7 @@ void Sime::Process(std::vector<Node>& net) const {
                     // unchanged at zero cost (no token, no context reset).
                     net[word.end].states.Insert(
                         State(value.score, word.end, value.pos, &value,
-                              word.id, word.pieces));
+                              word.id, word.pieces, EdgeFlags(word)));
                     continue;
                 }
 #endif
@@ -1792,7 +1864,7 @@ void Sime::Process(std::vector<Node>& net) const {
                 float_t next_cost =
                     value.score + step + word.penalty + user_adjust;
                 State next(next_cost, word.end, cur_pos, &value, word.id,
-                           word.pieces);
+                           word.pieces, EdgeFlags(word));
                 net[word.end].states.Insert(next);
             }
         }
@@ -1806,9 +1878,11 @@ std::vector<Sime::Link> Sime::Backtrace(
     const State* state = &tail_state;
     while (state != nullptr && state->backtrace_state != nullptr) {
         const State* prev = state->backtrace_state;
-        path.push_back({prev->now, state->now,
-                        state->backtrace_token,
-                        state->backtrace_pieces});
+        Link link{prev->now, state->now, state->backtrace_token,
+                  state->backtrace_pieces};
+        link.english = state->backtrace_flags & State::kEdgeEnglish;
+        link.expansion = state->backtrace_flags & State::kEdgeExpansion;
+        path.push_back(link);
         state = prev;
     }
     std::reverse(path.begin(), path.end());
@@ -1892,12 +1966,10 @@ std::vector<DecodeResult> Sime::DecodeSentence(
     if (!ready_ || input.empty()) return results;
     MaybeTrimCaches();
 
-#if SIME_WEAVE_RAW_CNT
+    // raw_off: the raw offset of each normalised byte (SIME_WEAVE_RAW_CNT's Layer 2 cnt and the
+    // candidate contract's segment spans).
     std::vector<std::size_t> raw_off;
     std::string lower = NormalizeInput(input, &raw_off);
-#else
-    std::string lower = NormalizeInput(input);
-#endif
     if (lower.empty()) return results;
 
     const std::size_t total = lower.size();
@@ -1962,7 +2034,9 @@ std::vector<DecodeResult> Sime::DecodeSentence(
             l1.push_back({std::move(text), std::move(py),
                           ExtractTokens(path),
                           -tail[rank].score,
-                          input.size()});
+                          input.size(),
+                          ExtractSegments(path, lower, raw_off, input.size()),
+                          ScoreBasis::kSentence});
         }
         std::sort(l1.begin(), l1.end(),
                   [](const DecodeResult& a, const DecodeResult& b) {
@@ -2032,19 +2106,24 @@ std::vector<DecodeResult> Sime::DecodeSentence(
         std::string edge_py = edge.pieces
             ? AbbreviatePieces(edge.pieces, slice)
             : "";
+        std::vector<Segment> edge_seg(1);  // weave-ime contract: [0, the edge's raw end)
+        edge_seg[0].end = edge.end >= total ? input.size() : raw_off[edge.end];
+        FillSegment(edge, lower, edge_seg[0]);
 #if SIME_WEAVE_OVERLAY
         PushBestLayer2EntryKeyed(
             best_l2,
             l2_index_by_text,
             text_key,
             {std::move(text_utf8), std::move(edge_py),
-             ExtractTokens({edge}), score, l2_cnt(edge.end)});
+             ExtractTokens({edge}), score, l2_cnt(edge.end),
+             std::move(edge_seg), ScoreBasis::kWordAlt});
 #else
         PushBestLayer2Entry(
             best_l2,
             l2_index_by_text,
             {std::move(text_utf8), std::move(edge_py),
-             ExtractTokens({edge}), score, l2_cnt(edge.end)});
+             ExtractTokens({edge}), score, l2_cnt(edge.end),
+             std::move(edge_seg), ScoreBasis::kWordAlt});
 #endif
     }
 

@@ -1,4 +1,4 @@
-// Modified by the weave-ime project (2026): search constants EnglishPenalty, EnglishPenaltyShort, BeamSize, and the scoped-penalty constants are macro-backed (SIME_WEAVE_*); adds SIME_WEAVE_CASE_FOLD and the SIME_WEAVE_LITERAL_EDGE literal-letters edge (with SIME_WEAVE_LITERAL_PER_LETTER and SIME_WEAVE_LITERAL_NONPINYIN); adds SIME_WEAVE_SPACE_BOUNDARY and SIME_WEAVE_RAW_CNT; weave defaults PENALTY_RULE=1, EN_PENALTY_MIXED=0.0, EN_SHORT_EDGE_LEN=2, EN_PENALTY_SHORT=4.0 (Phase 4.5 Task 2; were 3 and 8.0), CASE_FOLD=1, RAW_CNT=1; adds Sime::TokenizeContext (additive, no macro); adds the SIME_WEAVE_OVERLAY lexicon overlay API (LoadOverlay, layer switches, display casing, dedup by key; default 0) (see NOTICE.weave.md).
+// Modified by the weave-ime project (2026): search constants EnglishPenalty, EnglishPenaltyShort, BeamSize, and the scoped-penalty constants are macro-backed (SIME_WEAVE_*); adds SIME_WEAVE_CASE_FOLD and the SIME_WEAVE_LITERAL_EDGE literal-letters edge (with SIME_WEAVE_LITERAL_PER_LETTER and SIME_WEAVE_LITERAL_NONPINYIN); adds SIME_WEAVE_SPACE_BOUNDARY and SIME_WEAVE_RAW_CNT; weave defaults PENALTY_RULE=1, EN_PENALTY_MIXED=0.0, EN_SHORT_EDGE_LEN=2, EN_PENALTY_SHORT=4.0 (Phase 4.5 Task 2; were 3 and 8.0), CASE_FOLD=1, RAW_CNT=1; adds Sime::TokenizeContext (additive, no macro); adds the SIME_WEAVE_OVERLAY lexicon overlay API (LoadOverlay, layer switches, display casing, dedup by key; default 0); adds the candidate-contract provenance (DecodeResult::segments and ::basis, additive, no macro) (see NOTICE.weave.md).
 #pragma once
 
 #include "common.h"
@@ -103,12 +103,46 @@ class Cutter;
 enum class DisplayCasing { kCanonical = 0, kAsTyped = 1 };
 #endif
 
+// weave-ime candidate contract (Docs/plans/phase-4.5-candidate-contract.md in weave-ime;
+// additive, no macro: it changes no decoding). DecodeSentence fills DecodeResult::segments and
+// ::basis; the other decode entry points leave segments empty.
+enum class SegmentKind : std::uint8_t { kPinyin = 0, kEnglish = 1, kLiteral = 2 };
+// kSentence: a Layer 1 whole-input candidate (beam score, with the decoder context).
+// kWordAlt: a Layer 2 single-word alternative (context-free unigram score). Scores compare only
+// within one basis.
+enum class ScoreBasis : std::uint8_t { kSentence = 0, kWordAlt = 1 };
+// Source-layer bits of a segment: L0 (the Sime dictionary) and the overlay's word layers
+// (bit 1 + LexLayer slot: L1 ESDB, L3 term pack, L4 user; L2 is a cost, never a source).
+constexpr unsigned kSourceBase = 1u << 0;
+constexpr unsigned kSourceL1 = 1u << 1;
+constexpr unsigned kSourceL3 = 1u << 3;
+constexpr unsigned kSourceL4 = 1u << 4;
+
+struct Segment {
+    // [start, end) in raw input bytes. The first segment starts at 0 and each next one where the
+    // previous ended; a separator (apostrophe, typed space) or a byte NormalizeInput drops belongs
+    // to the segment before it, and the last segment ends at the candidate's raw end.
+    std::size_t start = 0;
+    std::size_t end = 0;
+    std::string text;            // this piece of DecodeResult::text (active display casing)
+    std::string typed_text;      // the piece with English letters in the typed casing
+    std::string canonical_text;  // the dictionary / layer spelling (as under kCanonical display)
+    SegmentKind kind = SegmentKind::kPinyin;
+    unsigned layer = 0;          // the one kSource* bit that supplied the word; 0 for a literal
+    unsigned sources = 0;        // every kSource* bit that contributed, after the overlay's merge
+    TokenID token = NotToken;    // the L0 token; NotToken for overlay words and literals
+    std::string units;           // this piece of DecodeResult::units ("" when it adds none)
+    bool expansion = false;      // an abbreviation / tail-completion edge
+};
+
 struct DecodeResult {
     std::string text;        // UTF-8 display text (▁ prefix stripped)
     std::string units;       // segmented pinyin (e.g. "ni'hao")
     std::vector<TokenID> tokens;  // token IDs for LM context
     float_t score = 0.0;    // larger is better (negative log probability negated)
     std::size_t cnt = 0;     // bytes of input consumed
+    std::vector<Segment> segments;               // weave-ime: DecodeSentence only
+    ScoreBasis basis = ScoreBasis::kSentence;    // weave-ime: DecodeSentence only
 };
 
 class Sime {
@@ -325,6 +359,12 @@ private:
                                         std::string_view input);
     std::vector<TokenID> ExtractTokens(const std::vector<Link>& path) const;
     static std::string TextFromU32(std::u32string& u32);
+    // weave-ime candidate contract: one Segment per token link of `path` (separators join the
+    // segment before them). `raw_off` maps normalised to raw input offsets (NormalizeInput).
+    void FillSegment(const Link& link, std::string_view input, Segment& seg) const;
+    std::vector<Segment> ExtractSegments(const std::vector<Link>& path, std::string_view input,
+                                         const std::vector<std::size_t>& raw_off,
+                                         std::size_t raw_size) const;
 
     // Num-key lattice
     void InitNumNet(std::string_view start,
