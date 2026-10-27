@@ -138,7 +138,7 @@ path), `SetIncrementalSelfCheck` (each warm call also decoded in full and compar
 the full result), `SetIncrementalDiagnostics`, `GetIncrementalStats`, `LastDecodeInfo` (cold/warm and
 the resume column, for the candidate contract's `cache_state`), `DecodeSentenceFull` (a full decode that
 leaves the snapshots alone) and the test hook `SetIncrementalFaultForTest`. A failed consistency check on
-a snapshot (column counts, missing columns, the old end's sentinel, column 0's initial state) falls back
+a snapshot (column counts, missing columns, its input a prefix of the new one, column 0's initial state) falls back
 to a full decode and is counted. weave-ime checks that every decode equals a full re-decode on every
 prefix and on seeded random typing sessions of every allowed set (`benchmarks/results/phase45/incremental/`
 there).

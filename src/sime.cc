@@ -2408,11 +2408,13 @@ std::unique_ptr<Sime::Snapshot> Sime::ResumeSnapshot(const Snapshot& base, const
 
     std::vector<Node> net;
     BuildSentenceNet(lower, net);
-    // k: the first column whose edges differ. The old end column held only the end sentinel, so it
-    // always differs; a k past it means the snapshot is not what it claims to be.
+    // k: the first column whose edges differ, at most old_total + 1. The old end column held only the
+    // end sentinel; it usually differs, but an apostrophe typed where no earlier edge changes (after
+    // a typed space) gives it exactly the sentinel's edge. Then every column up to the old end is the
+    // same, and the beams up to old_total + 1 (the old tail) are reused: that column receives only
+    // edges from the equal columns before it.
     std::size_t k = 0;
     while (k <= old_total && SameEdges(*base.edges[k], net[k].es)) ++k;
-    if (k > old_total) return nullptr;
     if (inc_diag_) {
         for (std::size_t c = k; c < old_total; ++c)
             if (!SameEdges(*base.edges[c], net[c].es)) ClassifyColumn(*base.edges[c], net[c].es, old_total);
