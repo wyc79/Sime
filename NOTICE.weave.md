@@ -149,8 +149,12 @@ there).
 so the full and the incremental paths share one implementation. Segments are now filled only for the
 candidates that are emitted (Layer 1 after the cut, Layer 2 once per kept entry) instead of for every
 scanned path and column-0 edge; candidate choice never reads segments. `PushBestLayer2EntryKeyed` is
-folded into `SentenceResults`. weave-ime checks that every allowed set decodes byte-identically to the
-previous runs, with and without the candidate contract.
+folded into `SentenceResults`. weave-ime checks that every allowed set decodes field for field like the
+previous (rc_e2_p4.0) runs with the macro compiled out and in, and that the contract runs carry the same plain fields
+and valid messages (`benchmarks/results/phase45/incremental/identity.md` there). It also compares the contract
+output (segments included) of fork 692b874 with that of this refactor on 7 sets, 28,420 messages and
+2,693,228 candidates: every field is equal except the fork-derived `cand_id`, `decoder_id` and `list_hash`,
+`decoder`, and the timing `decode_us` (`benchmarks/results/phase45/incremental/cross_fork_contract.md` there).
 
 Modified files:
 
