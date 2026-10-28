@@ -9,8 +9,8 @@ Per Apache-2.0 section 4, files modified in this fork carry a header line
 
 Each change below is a `SIME_WEAVE_*` macro guarded by `#ifndef`. Until
 weave-ime Phase 2 Task 8 every default reproduced upstream. Since then seven
-defaults differ from upstream, so **a build with no `-D` defines no longer
-behaves like upstream Sime**:
+defaults differ from upstream, and since Phase 4.5 Task 8c nine, so **a build with no `-D` defines
+no longer behaves like upstream Sime**:
 
 | macro | weave default | upstream value | effect of the weave default |
 |---|---|---|---|
@@ -21,6 +21,8 @@ behaves like upstream Sime**:
 | `SIME_WEAVE_CASE_FOLD` (`include/sime.h`) | 1 | 0 | English lookups are case-insensitive with a lowercase-key dictionary; typed capitals still select their casing (see below for each dictionary) |
 | `SIME_WEAVE_RAW_CNT` (`include/sime.h`) | 1 | 0 | `DecodeSentence` reports `DecodeResult::cnt` in raw input bytes (Layer 2 changes; `DecodeNumSentence` and `DecodeStr` are unchanged) |
 | `SIME_WEAVE_BEAM_EXACT` (`include/state.h`) | 1 | 0 | exact column beam (fixes upstream's stale bucket keys and state-count drift) |
+| `SIME_WEAVE_OVERLAY` (`include/overlay.h`; Phase 4.5 Task 8c) | 1 | 0 (no overlay) | the lexicon overlay is compiled in; it stays empty, and decoding unchanged, until `LoadOverlay` |
+| `SIME_WEAVE_INCREMENTAL` (`include/sime.h`; Phase 4.5 Task 8c) | 1 | 0 (no incremental decoding) | `DecodeSentence` reuses the previous decode of the composition (output equal to a full decode); `SetIncremental(false)` switches it off |
 
 **Dictionary.** `SIME_WEAVE_CASE_FOLD=1` looks every typed English span up
 by its lowercased spelling and, when the span has capitals, also as typed;
@@ -61,12 +63,12 @@ Unchanged defaults: `SIME_WEAVE_EN_PENALTY` 2.5, `SIME_WEAVE_BEAM_SIZE` 20, `SIM
 `SIME_WEAVE_LITERAL_EDGE` 0 (and `SIME_WEAVE_LITERAL_MIN_LEN` 3,
 `SIME_WEAVE_LITERAL_PENALTY` 12.0, `SIME_WEAVE_LITERAL_PER_LETTER` 0.0,
 `SIME_WEAVE_LITERAL_NONPINYIN` 0), `SIME_WEAVE_SPACE_BOUNDARY` 0, the
-debug-only `SIME_WEAVE_BEAM_CHECK` 0, `SIME_WEAVE_OVERLAY` 0 (Phase 4.5 Task 3, below) and
-`SIME_WEAVE_INCREMENTAL` 0 (Phase 4.5 Task 6, below); all equal upstream.
+debug-only `SIME_WEAVE_BEAM_CHECK` 0; all equal upstream. (`SIME_WEAVE_OVERLAY` and
+`SIME_WEAVE_INCREMENTAL` were 0 here until Phase 4.5 Task 8c; see the table above.)
 
 **Upstream behaviour** is reproduced exactly by defining every macro to its
 upstream value: `PENALTY_RULE=0 EN_PENALTY_MIXED=8.0 EN_SHORT_EDGE_LEN=0
-EN_PENALTY_SHORT=8.0 CASE_FOLD=0 RAW_CNT=0 BEAM_EXACT=0` plus the unchanged values above (each name
+EN_PENALTY_SHORT=8.0 CASE_FOLD=0 RAW_CNT=0 BEAM_EXACT=0 OVERLAY=0 INCREMENTAL=0` plus the unchanged values above (each name
 prefixed `SIME_WEAVE_`), with upstream's `save/sime.dict`. weave-ime's
 regression gate checks that build against its Phase 1 reference runs.
 
@@ -76,7 +78,16 @@ edge length went 3 -> 2 and `SIME_WEAVE_EN_PENALTY_SHORT` 8.0 -> 4.0 (the old pa
 `benchmarks/results/recall/penalty/summary.md` and `benchmarks/results/phase45/recall_gate/decision.md`.
 Nothing else changed; no left context is fed to the decoder (D2).
 
-**Phase 4.5 Task 3 (2026-10-26): the lexicon overlay, `SIME_WEAVE_OVERLAY` (default 0).** With
+**Phase 4.5 Task 8c (2026-10-27).** The owner chose (D7) to ship the lexicon overlay with the
+vocabulary proposal `l12_f12` and incremental decoding on, so `SIME_WEAVE_OVERLAY` and
+`SIME_WEAVE_INCREMENTAL` now default to 1 (were 0). Only the defaults changed; no code did. The overlay
+*data* and its settings are not in this fork: weave-ime defines them in one file
+(`benchmarks/engines/sime/weave_defaults.conf` there). weave-ime checks that a default build with no
+overlay loaded and incremental decoding switched off at runtime decodes every allowed set exactly like the
+previous default, and that with the shipped settings it equals the measured proposal
+(`benchmarks/results/phase45/defaults/` there). Define both macros to 0 for the previous default.
+
+**Phase 4.5 Task 3 (2026-10-26): the lexicon overlay, `SIME_WEAVE_OVERLAY` (default 0; 1 since Task 8c).** With
 0 nothing below is compiled (`src/overlay.cc` compiles to nothing) and the engine is unchanged.
 With 1, `Sime::LoadOverlay` reads versioned lexicon layer files (weave-ime
 `Docs/plans/phase-4.5-lexicon.md`: L1 ESDB words, L2 wordfreq frequencies, L3 a term pack, L4
@@ -120,7 +131,7 @@ byte-identically to the previous runs with the overlay compiled out and with it 
 empty (`benchmarks/results/phase45/contract/identity.md` there). The IDs and hashes of the contract
 are computed outside the fork (weave-ime `src/contract`).
 
-**Phase 4.5 Task 6 (2026-10-26): incremental decoding, `SIME_WEAVE_INCREMENTAL` (default 0).** With 0
+**Phase 4.5 Task 6 (2026-10-26): incremental decoding, `SIME_WEAVE_INCREMENTAL` (default 0; 1 since Task 8c).** With 0
 nothing below the refactor is compiled and every call decodes from scratch. With 1, `DecodeSentence` keeps
 a chain of snapshots for the current composition (normalised input, generation, per column a shared edge
 list and a shared beam). When the normalised input equals the last one, the lattice is reused; when it
@@ -228,7 +239,7 @@ Modified files:
   which aborts when the invariant fails after an `Insert`.
 
 - `include/sime.h`, `src/sime.cc`, `CMakeLists.txt` (Phase 4.5 Task 3, `SIME_WEAVE_OVERLAY`,
-  default 0): the overlay API and its use in `InitNet`, `PruneNode`, `InitialState`, `Process`,
+  default 0, 1 since Task 8c): the overlay API and its use in `InitNet`, `PruneNode`, `InitialState`, `Process`,
   `ToText`, `DecodeSentence`, `DecodeStr`, `LearnUserSentence` and `TokenText` as described
   above; `CMakeLists.txt` adds `src/overlay.cc` to `sime_core`.
 
@@ -239,7 +250,7 @@ Modified files:
   described above. `AsTyped` (the D5 as-typed casing helper) is now compiled without the overlay
   too, for a segment's typed casing.
 
-- `include/sime.h`, `src/sime.cc` (Phase 4.5 Task 6): `SIME_WEAVE_INCREMENTAL` and its API, types
+- `include/sime.h`, `src/sime.cc` (Phase 4.5 Task 6): `SIME_WEAVE_INCREMENTAL` (default 0, 1 since Task 8c) and its API, types
   (`DecodeKind`, `DecodeInfo`, `IncrementalStats`, `IncrementalFault`) and snapshot chain as described
   above; the no-output-change refactor (`BuildSentenceNet`, `DecodeSentenceUnlocked`, `SentenceResults`,
   `Relax`, segments for emitted candidates only).
@@ -253,5 +264,5 @@ Added files:
 
 - `NOTICE.weave.md`: this file.
 - `include/overlay.h`, `src/overlay.cc` (Phase 4.5 Task 3): the lexicon overlay
-  (`SIME_WEAVE_OVERLAY`, default 0; empty translation unit then): layer file parsing,
+  (`SIME_WEAVE_OVERLAY`, default 1 since Task 8c, was 0; an empty translation unit with 0): layer file parsing,
   cross-layer merge, bounded costs, L0 coverage and the overlay English DAT.

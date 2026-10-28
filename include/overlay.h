@@ -1,12 +1,14 @@
-// Added by the weave-ime project (2026): the lexicon overlay (SIME_WEAVE_OVERLAY, default 0): extra English words from versioned layer files (L1 ESDB, L2 wordfreq, L3 term pack, L4 user), merged across layers, at a bounded cost; tokens keep the layer of their spelling and L0 words the L3/L4 layers that list them, for the candidate contract (additive) (see NOTICE.weave.md).
+// Added by the weave-ime project (2026): the lexicon overlay (SIME_WEAVE_OVERLAY, default 1 since weave-ime Phase 4.5 Task 8c, was 0): extra English words from versioned layer files (L1 ESDB, L2 wordfreq, L3 term pack, L4 user), merged across layers, at a bounded cost; tokens keep the layer of their spelling and L0 words the L3/L4 layers that list them, for the candidate contract (additive) (see NOTICE.weave.md).
 #pragma once
 
 // SIME_WEAVE_OVERLAY=1: Sime can load lexicon layer files (weave-ime
 // Docs/plans/phase-4.5-lexicon.md) and adds their words as English edges next to
 // the dictionary's own, at a cost held in a band set from the L2 frequency. With 0
-// (the default) none of this is compiled.
+// none of this is compiled. 1 is the default since weave-ime Phase 4.5 Task 8c (the
+// owner's D7, 2026-10-27; was 0): compiled in, the overlay is still empty until
+// LoadOverlay, and an empty overlay leaves every decode unchanged.
 #ifndef SIME_WEAVE_OVERLAY
-#define SIME_WEAVE_OVERLAY 0
+#define SIME_WEAVE_OVERLAY 1
 #endif
 
 #if SIME_WEAVE_OVERLAY
