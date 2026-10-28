@@ -1,4 +1,4 @@
-// Added by the weave-ime project (2026): the lexicon overlay behind SIME_WEAVE_OVERLAY (default 0; compiles to nothing then): layer files, cross-layer merge, bounded costs, L0 coverage and the overlay English DAT; the contract's spelling slot and L0 cover sources (additive) (see NOTICE.weave.md).
+// Added by the weave-ime project (2026): the lexicon overlay behind SIME_WEAVE_OVERLAY (default 1 since Task 8c; compiles to nothing when built with -DSIME_WEAVE_OVERLAY=0): layer files, cross-layer merge, bounded costs, L0 coverage and the overlay English DAT; the contract's spelling slot and L0 cover sources (additive) (see NOTICE.weave.md).
 #include "overlay.h"
 
 #if SIME_WEAVE_OVERLAY
