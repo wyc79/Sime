@@ -24,6 +24,13 @@ no longer behaves like upstream Sime**:
 | `SIME_WEAVE_OVERLAY` (`include/overlay.h`; Phase 4.5 Task 8c) | 1 | 0 (no overlay) | the lexicon overlay is compiled in; it stays empty, and decoding unchanged, until `LoadOverlay` |
 | `SIME_WEAVE_INCREMENTAL` (`include/sime.h`; Phase 4.5 Task 8c) | 1 | 0 (no incremental decoding) | `DecodeSentence` reuses the previous decode of the composition (output equal to a full decode); `SetIncremental(false)` switches it off |
 
+**Experiment, not a default (local branch `weave-typo`, weave-ime Phase 5 owner feedback).**
+`SIME_WEAVE_SWAP_EDGE` (`include/sime.h`, default 0, compiled out): `Sime::AppendSwapEdges`, at the end of
+`BuildSentenceNet`, adds extra pinyin edges for words reached with two adjacent typed letters swapped, or with one of
+two equal adjacent letters dropped, at the fixed runtime costs of `SetSwapCost` (negative, the initial value: off).
+Exact edges are not changed or filtered. English lookups, `DecodeStr`, `GetTokens` and the T9 path are not touched.
+Touches `include/sime.h`, `src/sime.cc`.
+
 **Dictionary.** `SIME_WEAVE_CASE_FOLD=1` looks every typed English span up
 by its lowercased spelling and, when the span has capitals, also as typed;
 the items both lookups find for one folded key form one group, and a typed

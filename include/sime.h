@@ -1,4 +1,4 @@
-// Modified by the weave-ime project (2026): search constants EnglishPenalty, EnglishPenaltyShort, BeamSize, and the scoped-penalty constants are macro-backed (SIME_WEAVE_*); adds SIME_WEAVE_CASE_FOLD and the SIME_WEAVE_LITERAL_EDGE literal-letters edge (with SIME_WEAVE_LITERAL_PER_LETTER and SIME_WEAVE_LITERAL_NONPINYIN); adds SIME_WEAVE_SPACE_BOUNDARY and SIME_WEAVE_RAW_CNT; weave defaults PENALTY_RULE=1, EN_PENALTY_MIXED=0.0, EN_SHORT_EDGE_LEN=2, EN_PENALTY_SHORT=4.0 (Phase 4.5 Task 2; were 3 and 8.0), CASE_FOLD=1, RAW_CNT=1; adds Sime::TokenizeContext (additive, no macro); adds the SIME_WEAVE_OVERLAY lexicon overlay API (LoadOverlay, layer switches, display casing, dedup by key; default 1 since Phase 4.5 Task 8c, was 0); adds the candidate-contract provenance (DecodeResult::segments and ::basis, additive, no macro); adds SIME_WEAVE_INCREMENTAL incremental decoding (snapshots per prefix, runtime switch; default 1 since Phase 4.5 Task 8c, was 0) (see NOTICE.weave.md).
+// Modified by the weave-ime project (2026): search constants EnglishPenalty, EnglishPenaltyShort, BeamSize, and the scoped-penalty constants are macro-backed (SIME_WEAVE_*); adds SIME_WEAVE_CASE_FOLD and the SIME_WEAVE_LITERAL_EDGE literal-letters edge (with SIME_WEAVE_LITERAL_PER_LETTER and SIME_WEAVE_LITERAL_NONPINYIN); adds SIME_WEAVE_SPACE_BOUNDARY and SIME_WEAVE_RAW_CNT; weave defaults PENALTY_RULE=1, EN_PENALTY_MIXED=0.0, EN_SHORT_EDGE_LEN=2, EN_PENALTY_SHORT=4.0 (Phase 4.5 Task 2; were 3 and 8.0), CASE_FOLD=1, RAW_CNT=1; adds Sime::TokenizeContext (additive, no macro); adds the SIME_WEAVE_OVERLAY lexicon overlay API (LoadOverlay, layer switches, display casing, dedup by key; default 1 since Phase 4.5 Task 8c, was 0); adds the candidate-contract provenance (DecodeResult::segments and ::basis, additive, no macro); adds SIME_WEAVE_INCREMENTAL incremental decoding (snapshots per prefix, runtime switch; default 1 since Phase 4.5 Task 8c, was 0); adds the SIME_WEAVE_SWAP_EDGE experiment (default 0, compiled out) (see NOTICE.weave.md).
 #pragma once
 
 #include "common.h"
@@ -103,6 +103,14 @@
 // default since weave-ime Phase 4.5 Task 8c (the owner's D7, 2026-10-27; was 0).
 #ifndef SIME_WEAVE_INCREMENTAL
 #define SIME_WEAVE_INCREMENTAL 1
+#endif
+// SIME_WEAVE_SWAP_EDGE=1 (experiment, local branch weave-typo, weave-ime Phase 5 owner feedback): the sentence decoder
+// also looks pinyin words up with two adjacent typed letters swapped (dina reaches dian) or one of two equal adjacent
+// letters dropped (diaan reaches dian). Each match is an extra edge over the typed span, at a fixed cost, added after
+// the exact edges are final, so it never replaces or filters one. English lookups are not touched. The costs are
+// runtime (SetSwapCost), and off until set. Default 0, compiled out.
+#ifndef SIME_WEAVE_SWAP_EDGE
+#define SIME_WEAVE_SWAP_EDGE 0
 #endif
 
 namespace sime {
@@ -315,6 +323,18 @@ public:
     void SetIncrementalDiagnostics(bool on);
     IncrementalStats GetIncrementalStats() const;
     DecodeInfo LastDecodeInfo() const;
+#if SIME_WEAVE_SWAP_EDGE
+    // Experiment: edge cost for swapped letters and for doubled letters; a negative cost switches that kind off.
+    void SetSwapCost(float_t swap_cost, float_t double_cost);
+    // Work counts of the last lattice built by the sentence decoder.
+    struct LatticeWork {
+        std::size_t edges = 0;         // edges of the whole lattice, sentinels and swap edges included
+        std::size_t swap_edges = 0;    // of which added by swapped letters
+        std::size_t double_edges = 0;  // of which added by doubled letters
+        std::size_t walk_steps = 0;    // pinyin trie steps of the corrected walks (the exact lookup not counted)
+    };
+    LatticeWork LastLatticeWork() const;
+#endif
     // A full decode that neither reads nor changes the snapshots (the differential's reference).
     std::vector<DecodeResult> DecodeSentenceFull(std::string_view input,
                                                  const std::vector<TokenID>& context,
@@ -429,6 +449,9 @@ private:
     // DecodeSentence's parts: the lattice edges of the normalised input (InitNet, penalties, pruning,
     // overlay), the full decode, and the candidate lists from a processed lattice.
     void BuildSentenceNet(std::string_view lower, std::vector<Node>& net) const;
+#if SIME_WEAVE_SWAP_EDGE
+    void AppendSwapEdges(std::vector<Node>& net, std::string_view input) const;
+#endif
     std::vector<DecodeResult> DecodeSentenceUnlocked(std::string_view input,
                                                      const std::vector<TokenID>& context,
                                                      std::size_t extra) const;
@@ -504,6 +527,11 @@ private:
     Overlay overlay_;
     DisplayCasing casing_ = DisplayCasing::kCanonical;
     bool dedup_by_key_ = false;
+#if SIME_WEAVE_SWAP_EDGE
+    float_t swap_cost_ = -1;
+    float_t double_cost_ = -1;
+    mutable LatticeWork lattice_work_;
+#endif
 #endif
     // TokenizeContext's Cutter, built on first use.
     mutable std::once_flag cutter_once_;
