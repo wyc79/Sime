@@ -1,3 +1,4 @@
+// Modified by the weave-ime project (2026): experiment branch weave-learning only: SIME_WEAVE_LEARNING adds a commit clock, lazily decayed per-entry counts, a bigram-only switch, a fixed bound on the adjustment and a counts-only file (Phase 5 F14).
 #include "user.h"
 
 #include <algorithm>
@@ -85,6 +86,13 @@ void UserSentence::Clear() {
     bigram_.clear();
     distinct_successors_.clear();
     total_unigram_count_ = 0;
+#if SIME_WEAVE_LEARNING
+    clock_ = 0;
+    aged_uni_.clear();
+    aged_bi_.clear();
+    aged_succ_.clear();
+    aged_total_ = {};
+#endif
 }
 
 bool UserSentence::Load(const std::filesystem::path& path,
@@ -380,6 +388,15 @@ std::uint32_t UserSentence::DistinctSuccessors(TokenID prev) const {
 
 float_t UserSentence::CostAdjustment(TokenID prev, TokenID cur,
                                      float_t lm_step) const {
+#if SIME_WEAVE_LEARNING
+    ++adjust_calls_;
+    if (learn_.half_life_uni > 0.0 || learn_.half_life_bi > 0.0) {
+        return AgedAdjustment(prev, cur, lm_step);
+    }
+    if (learn_.bigram_only && (prev == NotToken || BigramCount(prev, cur) == 0)) {
+        return 0.0;
+    }
+#endif
     if (cur == NotToken || weight_ <= 0.0 || weight_ >= 1.0 ||
         total_unigram_count_ == 0) {
         return 0.0;
@@ -388,6 +405,9 @@ float_t UserSentence::CostAdjustment(TokenID prev, TokenID cur,
     if (cur_count == 0) {
         return 0.0;
     }
+#if SIME_WEAVE_LEARNING
+    ++adjust_hits_;
+#endif
 
     // Interpolated Absolute Discounting at both levels — same family
     // and same per-order D values as the main LM (construct.cc):
@@ -416,7 +436,11 @@ float_t UserSentence::CostAdjustment(TokenID prev, TokenID cur,
                 denom;
             const float_t gamma =
                 kBigramDiscount * static_cast<float_t>(n_succ) / denom;
+#if SIME_WEAVE_LEARNING
+            pr_user = learn_.bigram_only ? alpha : alpha + gamma * pr_unigram;
+#else
             pr_user = alpha + gamma * pr_unigram;
+#endif
         }
     }
     pr_user = std::min<float_t>(pr_user, 1.0);
@@ -437,8 +461,194 @@ float_t UserSentence::CostAdjustment(TokenID prev, TokenID cur,
         mix = b + std::log1p(std::exp(a - b));
     }
     const float_t mixed_log_prob = std::max(lm_log_prob, mix);
+#if SIME_WEAVE_LEARNING
+    if (learn_.max_adjust > 0.0) {
+        return std::max(lm_log_prob - mixed_log_prob, -learn_.max_adjust);
+    }
+#endif
     return lm_log_prob - mixed_log_prob;
 }
+
+#if SIME_WEAVE_LEARNING
+float_t UserSentence::Effective(const Aged& e, std::uint64_t now, float_t half_life) {
+    if (half_life <= 0.0 || now <= e.last) {
+        return e.count;
+    }
+    return e.count * std::pow(2.0, -static_cast<float_t>(now - e.last) / half_life);
+}
+
+void UserSentence::Bump(Aged& e, std::uint64_t now, float_t half_life, float_t delta) {
+    e.count = Effective(e, now, half_life) + delta;
+    e.last = now;
+}
+
+// One learned token after `prev`. N1+(prev, *) counts a successor again once its count had faded to the bigram
+// discount or below: from there on it adds nothing to the numerator, so it behaves as new.
+void UserSentence::AgeToken(TokenID prev, TokenID token) {
+    Bump(aged_uni_[token], clock_, learn_.half_life_uni, 1.0);
+    Bump(aged_total_, clock_, learn_.half_life_uni, 1.0);
+    if (prev == NotToken) {
+        return;
+    }
+    Aged& bi = aged_bi_[BigramKey(prev, token)];
+    const bool fresh = Effective(bi, clock_, learn_.half_life_bi) <= kBigramDiscount;
+    Bump(bi, clock_, learn_.half_life_bi, 1.0);
+    if (fresh) {
+        Bump(aged_succ_[prev], clock_, learn_.half_life_uni, 1.0);
+    }
+}
+
+void UserSentence::NoteCommit(std::size_t unlearned_tokens) {
+    ++clock_;
+    if (unlearned_tokens > 0 && (learn_.half_life_uni > 0.0 || learn_.half_life_bi > 0.0)) {
+        Bump(aged_total_, clock_, learn_.half_life_uni, static_cast<float_t>(unlearned_tokens));
+    }
+}
+
+float_t UserSentence::EffectiveUnigram(TokenID token) const {
+    auto it = aged_uni_.find(token);
+    return it == aged_uni_.end() ? 0.0 : Effective(it->second, clock_, learn_.half_life_uni);
+}
+
+float_t UserSentence::EffectiveBigram(TokenID prev, TokenID cur) const {
+    auto it = aged_bi_.find(BigramKey(prev, cur));
+    return it == aged_bi_.end() ? 0.0 : Effective(it->second, clock_, learn_.half_life_bi);
+}
+
+float_t UserSentence::EffectiveTotal() const {
+    return Effective(aged_total_, clock_, learn_.half_life_uni);
+}
+
+std::size_t UserSentence::LiveUnigrams(float_t floor) const {
+    std::size_t n = 0;
+    for (const auto& [k, e] : aged_uni_) {
+        n += Effective(e, clock_, learn_.half_life_uni) >= floor;
+    }
+    return n;
+}
+
+std::size_t UserSentence::LiveBigrams(float_t floor) const {
+    std::size_t n = 0;
+    for (const auto& [k, e] : aged_bi_) {
+        n += Effective(e, clock_, learn_.half_life_bi) >= floor;
+    }
+    return n;
+}
+
+float_t UserSentence::Mix(float_t pr_user, float_t lm_step) const {
+    pr_user = std::min<float_t>(pr_user, 1.0);
+    if (pr_user <= 0.0) {
+        return 0.0;
+    }
+    const float_t lm_log_prob = -lm_step;
+    const float_t a = lm_log_prob + std::log(1.0 - weight_);
+    const float_t b = std::log(pr_user) + std::log(weight_);
+    const float_t mix = a > b ? a + std::log1p(std::exp(b - a)) : b + std::log1p(std::exp(a - b));
+    const float_t adjust = lm_log_prob - std::max(lm_log_prob, mix);
+    return learn_.max_adjust > 0.0 ? std::max(adjust, -learn_.max_adjust) : adjust;
+}
+
+// The model of CostAdjustment on effective counts: same discounts, same mixture.
+float_t UserSentence::AgedAdjustment(TokenID prev, TokenID cur, float_t lm_step) const {
+    if (cur == NotToken || weight_ <= 0.0 || weight_ >= 1.0) {
+        return 0.0;
+    }
+    const float_t cur_count = EffectiveUnigram(cur);
+    const float_t total = EffectiveTotal();
+    if (cur_count <= 0.0 || total <= 0.0) {
+        return 0.0;
+    }
+    ++adjust_hits_;
+    const float_t pr_unigram = std::max(cur_count - kUnigramDiscount, 0.0) / total;
+    float_t pr_user = learn_.bigram_only ? 0.0 : pr_unigram;
+    if (prev != NotToken) {
+        const float_t prev_count = EffectiveUnigram(prev);
+        if (prev_count > 0.0) {
+            const float_t bi = EffectiveBigram(prev, cur);
+            auto sit = aged_succ_.find(prev);
+            const float_t n_succ = sit == aged_succ_.end() ? 0.0 : Effective(sit->second, clock_, learn_.half_life_uni);
+            const float_t alpha = std::max(bi - kBigramDiscount, 0.0) / prev_count;
+            const float_t gamma = kBigramDiscount * n_succ / prev_count;
+            pr_user = learn_.bigram_only ? alpha : alpha + gamma * pr_unigram;
+        }
+    }
+    return Mix(pr_user, lm_step);
+}
+
+bool UserSentence::SaveCounts(const std::filesystem::path& path, std::string_view vocab_sig) const {
+    std::ofstream out(path);
+    if (!out.is_open()) {
+        return false;
+    }
+    out.precision(17);
+    out << "SIME_USER_COUNTS_EXP1\n" << kVocabPrefix << vocab_sig << '\n';
+    out << "CLOCK " << clock_ << '\n';
+    out << "TOTAL " << total_unigram_count_ << ' ' << aged_total_.count << ' ' << aged_total_.last << '\n';
+    std::vector<std::pair<std::uint64_t, std::string>> lines;
+    auto row = [](auto key, std::uint32_t n, const Aged& a) {
+        std::ostringstream s;
+        s.precision(17);
+        s << key << ' ' << n << ' ' << a.count << ' ' << a.last;
+        return s.str();
+    };
+    for (const auto& [k, n] : unigram_) {
+        auto it = aged_uni_.find(k);
+        lines.emplace_back(k, "U " + row(k, n, it == aged_uni_.end() ? Aged{} : it->second));
+    }
+    for (const auto& [k, n] : distinct_successors_) {
+        auto it = aged_succ_.find(k);
+        lines.emplace_back(k, "S " + row(k, n, it == aged_succ_.end() ? Aged{} : it->second));
+    }
+    for (const auto& [k, n] : bigram_) {
+        auto it = aged_bi_.find(k);
+        lines.emplace_back(k, "B " + row(k, n, it == aged_bi_.end() ? Aged{} : it->second));
+    }
+    std::sort(lines.begin(), lines.end());
+    for (const auto& l : lines) {
+        out << l.second << '\n';
+    }
+    return static_cast<bool>(out);
+}
+
+bool UserSentence::LoadCounts(const std::filesystem::path& path, std::string_view vocab_sig) {
+    std::ifstream in(path);
+    std::string line;
+    if (!in.is_open() || !std::getline(in, line) || line != "SIME_USER_COUNTS_EXP1" || !std::getline(in, line) ||
+        (!vocab_sig.empty() && line != std::string(kVocabPrefix) + std::string(vocab_sig))) {
+        return false;
+    }
+    LearnConfig keep = learn_;
+    Clear();
+    learn_ = keep;
+    while (std::getline(in, line)) {
+        std::istringstream s(line);
+        std::string tag;
+        s >> tag;
+        if (tag == "CLOCK") {
+            s >> clock_;
+        } else if (tag == "TOTAL") {
+            s >> total_unigram_count_ >> aged_total_.count >> aged_total_.last;
+        } else {
+            std::uint64_t key = 0, last = 0;
+            std::uint32_t n = 0;
+            float_t count = 0.0;
+            s >> key >> n >> count >> last;
+            const Aged a{count, last};
+            if (tag == "U") {
+                unigram_[static_cast<TokenID>(key)] = n;
+                aged_uni_[static_cast<TokenID>(key)] = a;
+            } else if (tag == "S") {
+                distinct_successors_[static_cast<TokenID>(key)] = n;
+                aged_succ_[static_cast<TokenID>(key)] = a;
+            } else if (tag == "B") {
+                bigram_[key] = n;
+                aged_bi_[key] = a;
+            }
+        }
+    }
+    return true;
+}
+#endif  // SIME_WEAVE_LEARNING
 
 std::uint64_t UserSentence::BigramKey(TokenID prev, TokenID cur) {
     return (static_cast<std::uint64_t>(prev) << 32U) |
@@ -507,6 +717,15 @@ void UserSentence::AppendToLatest(Selection selection) {
             prev_tail = last_sel.tokens.back();
         }
     }
+#if SIME_WEAVE_LEARNING
+    {
+        TokenID prev = prev_tail;
+        for (auto token : selection.tokens) {
+            AgeToken(prev, token);
+            prev = token;
+        }
+    }
+#endif
     for (auto token : selection.tokens) {
         IncCount(unigram_, token, 1);
         ++total_unigram_count_;
@@ -535,6 +754,11 @@ void UserSentence::AdjustEntryCounts(const Entry& entry, int delta) {
     }
     if (delta > 0) {
         auto d = static_cast<std::uint32_t>(delta);
+#if SIME_WEAVE_LEARNING
+        for (std::size_t i = 0; i < flat.size(); ++i) {
+            AgeToken(i ? flat[i - 1] : NotToken, flat[i]);
+        }
+#endif
         for (auto token : flat) {
             IncCount(unigram_, token, d);
             total_unigram_count_ += d;
