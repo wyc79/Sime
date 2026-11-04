@@ -32,6 +32,13 @@ edge in typed bytes, default 2). Doubled letters are not corrected.
 Exact edges are not changed or filtered. English lookups, `DecodeStr`, `GetTokens` and the T9 path are not touched.
 Touches `include/sime.h`, `src/sime.cc`.
 
+**Experiment, not a default (local branch `weave-reading-prior`, weave-ime Phase 5 F12).**
+`SIME_WEAVE_READING_PRIOR` (`include/sime.h`, default 0, compiled out): `Sime::LoadReadingPrior` reads a
+table of (character, reading, penalty), and a single-character pinyin edge on a listed pair pays that penalty
+in addition to its other penalties (`ApplyReadingPrior`, after `ComputeEdgePenalties` and before `PruneNode`).
+Multi-character words are not touched. The table is an input, not part of this repository. Touches
+`include/sime.h`, `src/sime.cc`.
+
 **Dictionary.** `SIME_WEAVE_CASE_FOLD=1` looks every typed English span up
 by its lowercased spelling and, when the span has capitals, also as typed;
 the items both lookups find for one folded key form one group, and a typed

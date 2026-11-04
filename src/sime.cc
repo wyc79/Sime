@@ -1,4 +1,4 @@
-// Modified by the weave-ime project (2026): ComputeEdgePenalties gains the SIME_WEAVE_PENALTY_RULE scoped English penalty; English DAT lookups gain SIME_WEAVE_CASE_FOLD (folded and, for a span with capitals, as-typed lookups merged per folded key) and AbbreviatePieces matches letters ignoring case under it; InitNet gains the SIME_WEAVE_LITERAL_EDGE literal-letters edge (with SIME_WEAVE_LITERAL_PER_LETTER and SIME_WEAVE_LITERAL_NONPINYIN); NormalizeInput, InitNet and DecodeSentence gain SIME_WEAVE_SPACE_BOUNDARY and SIME_WEAVE_RAW_CNT; adds Sime::TokenizeContext (Cutter over the last N code points of committed text; additive, no macro); adds the SIME_WEAVE_OVERLAY lexicon overlay (overlay English edges at a bounded cost with a history break, display casing, dedup by key; default 1 since the Task 8c fork commit b605d07); adds the candidate-contract provenance (edge flags kept through State and Backtrace, DecodeResult::segments and ::basis from DecodeSentence; additive, no macro); DecodeSentence split into BuildSentenceNet / SentenceResults and Process into Relax, with segments filled only for emitted candidates (no output change); adds SIME_WEAVE_INCREMENTAL incremental decoding (snapshots per normalised prefix, Process resumed at the first changed column, generation counter, fallback; default 1 since Task 8c, runtime switch Sime::SetIncremental); adds the SIME_WEAVE_SWAP_EDGE swapped-letter edges (AppendSwapEdges at the end of BuildSentenceNet, sentence decoder only; default 0, compiled out).
+// Modified by the weave-ime project (2026): ComputeEdgePenalties gains the SIME_WEAVE_PENALTY_RULE scoped English penalty; English DAT lookups gain SIME_WEAVE_CASE_FOLD (folded and, for a span with capitals, as-typed lookups merged per folded key) and AbbreviatePieces matches letters ignoring case under it; InitNet gains the SIME_WEAVE_LITERAL_EDGE literal-letters edge (with SIME_WEAVE_LITERAL_PER_LETTER and SIME_WEAVE_LITERAL_NONPINYIN); NormalizeInput, InitNet and DecodeSentence gain SIME_WEAVE_SPACE_BOUNDARY and SIME_WEAVE_RAW_CNT; adds Sime::TokenizeContext (Cutter over the last N code points of committed text; additive, no macro); adds the SIME_WEAVE_OVERLAY lexicon overlay (overlay English edges at a bounded cost with a history break, display casing, dedup by key; default 1 since the Task 8c fork commit b605d07); adds the candidate-contract provenance (edge flags kept through State and Backtrace, DecodeResult::segments and ::basis from DecodeSentence; additive, no macro); DecodeSentence split into BuildSentenceNet / SentenceResults and Process into Relax, with segments filled only for emitted candidates (no output change); adds SIME_WEAVE_INCREMENTAL incremental decoding (snapshots per normalised prefix, Process resumed at the first changed column, generation counter, fallback; default 1 since Task 8c, runtime switch Sime::SetIncremental); adds the SIME_WEAVE_SWAP_EDGE swapped-letter edges (AppendSwapEdges at the end of BuildSentenceNet, sentence decoder only; default 0, compiled out); adds the SIME_WEAVE_READING_PRIOR rare-reading penalty table (LoadReadingPrior, ApplyReadingPrior after ComputeEdgePenalties in the sentence and word decoders; default 0, compiled out).
 #include "sime.h"
 
 #include "cut.h"
@@ -9,6 +9,10 @@
 #include <chrono>
 #include <cmath>
 #include <cstring>
+#if SIME_WEAVE_READING_PRIOR
+#include <fstream>
+#include <map>
+#endif
 #include <functional>
 #include <sstream>
 #include <system_error>
@@ -470,6 +474,81 @@ std::string Sime::TokenText(TokenID id) const {
     }
     return TextFromU32(u32);
 }
+
+#if SIME_WEAVE_READING_PRIOR
+bool Sime::LoadReadingPrior(const std::filesystem::path& path, std::string* error) {
+    std::lock_guard<std::mutex> lock(decode_mutex_);
+#if SIME_WEAVE_INCREMENTAL
+    BumpGeneration();
+#endif
+    reading_prior_.clear();
+    reading_prior_size_ = 0;
+    auto fail = [&](const std::string& why) {
+        reading_prior_.clear();
+        reading_prior_size_ = 0;
+        if (error) *error = why;
+        return false;
+    };
+    if (!ready_) return fail("engine not ready");
+    std::ifstream in(path, std::ios::binary);
+    if (!in) return fail("cannot open " + path.string());
+    std::map<std::pair<std::u32string, std::string>, float_t> want;
+    std::string line;
+    while (std::getline(in, line)) {
+        if (!line.empty() && line.back() == '\r') line.pop_back();
+        if (line.empty() || line[0] == '#') continue;
+        const auto t1 = line.find('\t');
+        const auto t2 = t1 == std::string::npos ? t1 : line.find('\t', t1 + 1);
+        if (t2 == std::string::npos) return fail("malformed line: " + line);
+        const std::u32string ch = ustr::ToU32(line.substr(0, t1));
+        const std::string reading = line.substr(t1 + 1, t2 - t1 - 1);
+        char* end = nullptr;
+        const double p = std::strtod(line.c_str() + t2 + 1, &end);
+        if (ch.size() != 1 || reading.empty() || *end != '\0' || !std::isfinite(p) || p < 0)
+            return fail("malformed line: " + line);
+        want[{ch, reading}] = static_cast<float_t>(p);
+    }
+    const std::size_t wanted = want.size();
+    for (std::uint32_t idx = 0;; ++idx) {
+        auto entry = dict_.GetEntry(Dict::LetterPinyin, idx);
+        if (entry.count == 0 && entry.items == nullptr) break;
+        for (std::uint32_t j = 0; j < entry.count; ++j) {
+            const char32_t* chars = dict_.TokenAt(entry.items[j].id);
+            if (!chars || chars[0] == 0 || chars[1] != 0) continue;  // single-character tokens only
+            auto it = want.find({std::u32string(1, chars[0]), std::string(entry.items[j].pieces)});
+            if (it == want.end()) continue;
+            reading_prior_[entry.items[j].id].emplace_back(it->first.second, it->second);
+            want.erase(it);
+            ++reading_prior_size_;
+        }
+    }
+    if (!want.empty()) return fail("not a single-character dictionary item: " + want.begin()->first.second);
+    if (reading_prior_size_ != wanted) return fail("internal count mismatch");
+    return true;
+}
+
+std::size_t Sime::ReadingPriorSize() const {
+    std::lock_guard<std::mutex> lock(decode_mutex_);
+    return reading_prior_size_;
+}
+
+void Sime::ApplyReadingPrior(std::vector<Node>& net) const {
+    if (reading_prior_.empty()) return;
+    for (auto& col : net) {
+        for (auto& edge : col.es) {
+            if (edge.english || !edge.pieces) continue;
+            auto it = reading_prior_.find(edge.id);
+            if (it == reading_prior_.end()) continue;
+            for (const auto& [reading, penalty] : it->second) {
+                if (reading == edge.pieces) {
+                    edge.penalty += penalty;
+                    break;
+                }
+            }
+        }
+    }
+}
+#endif
 
 void Sime::ComputeEdgePenalties(std::vector<Node>& net,
                                 std::string_view input) {
@@ -1415,6 +1494,9 @@ std::vector<DecodeResult> Sime::DecodeStr(
     InitNet(lower, net, /*expansion=*/false);
 #endif
     ComputeEdgePenalties(net, lower);
+#if SIME_WEAVE_READING_PRIOR
+    ApplyReadingPrior(net);
+#endif
     for (auto& col : net) PruneNode(col.es);
 #if SIME_WEAVE_OVERLAY
     AppendOverlayEdges(net, ov_edges, lower);
@@ -2009,6 +2091,9 @@ void Sime::BuildSentenceNet(std::string_view lower, std::vector<Node>& net) cons
     InitNet(lower, net, /*expansion=*/true);
 #endif
     ComputeEdgePenalties(net, lower);
+#if SIME_WEAVE_READING_PRIOR
+    ApplyReadingPrior(net);
+#endif
     for (auto& col : net) PruneNode(col.es);
 #if SIME_WEAVE_OVERLAY
     AppendOverlayEdges(net, ov_edges, lower);
