@@ -2019,13 +2019,14 @@ void Sime::BuildSentenceNet(std::string_view lower, std::vector<Node>& net) cons
 }
 
 #if SIME_WEAVE_SWAP_EDGE
-void Sime::SetSwapCost(float_t swap_cost, float_t double_cost) {
+void Sime::SetSwapCost(float_t swap_cost, float_t double_cost, std::size_t min_span) {
     std::lock_guard<std::mutex> lock(decode_mutex_);
 #if SIME_WEAVE_INCREMENTAL
     BumpGeneration();
 #endif
     swap_cost_ = swap_cost;
     double_cost_ = double_cost;
+    swap_min_span_ = min_span;
 }
 
 Sime::LatticeWork Sime::LastLatticeWork() const {
@@ -2056,6 +2057,7 @@ void Sime::AppendSwapEdges(std::vector<Node>& net, std::string_view input) const
         for (const auto& e : net[s].es)
             if (!IsNoToken(e.id) && !e.english) seen.insert(key(e.id, e.end));
         auto record = [&](const States& st, std::size_t end, float_t cost, std::vector<Link>& out) {
+            if (&out == &swap_found && end - s < swap_min_span_) return;
             for (const auto& r : dat.CollectPrefixMatchesPinyin(st, end - s, 512, false)) {
                 const auto entry = dict_.GetEntry(Dict::LetterPinyin, r.value);
                 for (std::uint32_t i = 0; i < entry.count; ++i) {

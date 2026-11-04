@@ -325,7 +325,8 @@ public:
     DecodeInfo LastDecodeInfo() const;
 #if SIME_WEAVE_SWAP_EDGE
     // Experiment: edge cost for swapped letters and for doubled letters; a negative cost switches that kind off.
-    void SetSwapCost(float_t swap_cost, float_t double_cost);
+    // A swap edge covers at least min_span typed bytes.
+    void SetSwapCost(float_t swap_cost, float_t double_cost, std::size_t min_span = 2);
     // Work counts of the last lattice built by the sentence decoder.
     struct LatticeWork {
         std::size_t edges = 0;         // edges of the whole lattice, sentinels and swap edges included
@@ -530,6 +531,7 @@ private:
 #if SIME_WEAVE_SWAP_EDGE
     float_t swap_cost_ = -1;
     float_t double_cost_ = -1;
+    std::size_t swap_min_span_ = 2;
     mutable LatticeWork lattice_work_;
 #endif
 #endif
