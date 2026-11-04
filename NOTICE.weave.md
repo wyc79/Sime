@@ -27,7 +27,8 @@ no longer behaves like upstream Sime**:
 **Experiment, not a default (local branch `weave-typo`, weave-ime Phase 5 owner feedback).**
 `SIME_WEAVE_SWAP_EDGE` (`include/sime.h`, default 0, compiled out): `Sime::AppendSwapEdges`, at the end of
 `BuildSentenceNet`, adds extra pinyin edges for words reached with two adjacent typed letters swapped, or with one of
-two equal adjacent letters dropped, at the fixed runtime costs of `SetSwapCost` (negative, the initial value: off).
+two equal adjacent letters dropped, at the fixed runtime costs of `SetSwapCost` (negative, the initial value: off);
+its third argument sets the shortest swap edge in typed bytes (default 2).
 Exact edges are not changed or filtered. English lookups, `DecodeStr`, `GetTokens` and the T9 path are not touched.
 Touches `include/sime.h`, `src/sime.cc`.
 
