@@ -1,4 +1,4 @@
-// Modified by the weave-ime project (2026): experiment branch weave-learning only: SIME_WEAVE_LEARNING adds a commit clock, lazily decayed per-entry counts, a bigram-only switch, a fixed bound on the adjustment and a counts-only file (Phase 5 F14).
+// Modified by the weave-ime project (2026): SIME_WEAVE_LEARNING (default 0) adds a commit clock, lazily decayed per-entry counts, a bigram-only switch, a fixed bound on the adjustment, a counts-only file with strict loading, pruning and a merge of what an engine taught (Phase 5 F14, Docs/plans/phase-5-unfreeze.md).
 #pragma once
 
 #include "common.h"
@@ -14,9 +14,9 @@
 #include <unordered_map>
 #include <vector>
 
-// weave-ime Phase 5 F14, experiment branch weave-learning: runtime knobs for the selection-learning ablation.
-// 0 (default): this header and user.cc behave as on the fork's weave branch. 1: the knobs exist; with all of
-// them at their defaults CostAdjustment still takes the original path, so the output does not change.
+// weave-ime Phase 5 F14: selection learning for the host. 0 (default): this header and user.cc behave as without it.
+// 1: the knobs exist; with all of them at their defaults CostAdjustment still takes the original path, so the
+// output does not change.
 #ifndef SIME_WEAVE_LEARNING
 #define SIME_WEAVE_LEARNING 0
 #endif
@@ -132,9 +132,37 @@ public:
     std::uint64_t AdjustCalls() const { return adjust_calls_; }
     std::uint64_t AdjustHits() const { return adjust_hits_; }
 
-    // Counts-only file: no sentences, no paragraphs, no text. Sorted by key, so file order keeps no sequence.
+    // Counts-only file: no sentences, no paragraphs, no text. Sorted by key, so file order keeps no sequence. It ends
+    // with the row count, so a cut file is caught. Writing to a temporary name and renaming is the caller's job.
     bool SaveCounts(const std::filesystem::path& path, std::string_view vocab_sig = {}) const;
-    bool LoadCounts(const std::filesystem::path& path, std::string_view vocab_sig = {});
+    // Strict: parses into a temporary and changes this store only if the whole file is good. Refuses another
+    // vocabulary (when vocab_sig is given), a bad token (NotToken, an overlay token, or one `token_ok` refuses), a
+    // non-finite or negative count, a `last` past the file's clock, a repeated key, a pair or successor row whose
+    // token has no unigram row, or a wrong row count. On success the sentences and the unwritten delta are gone;
+    // the knobs and the weight stay.
+    bool LoadCounts(const std::filesystem::path& path, std::string_view vocab_sig = {},
+                    const std::function<bool(TokenID)>& token_ok = {});
+
+    // Drops pairs at effective count <= 0.5 (the bigram discount makes them do nothing), then the oldest last-seen over
+    // `max_pairs`. A word entry stays if a kept pair uses it, on either side, or its effective count is >= 0.05.
+    // Returns the pairs dropped.
+    std::size_t Prune(std::size_t max_pairs);
+
+    // What this store taught since the last ClearDelta. The commit count and the tokens that were not learned go
+    // with it, so a merge moves the clock and the total the same way.
+    struct CountsDelta {
+        std::uint64_t commits = 0;
+        std::uint64_t unlearned_tokens = 0;
+        std::unordered_map<TokenID, std::uint32_t> unigram;
+        std::unordered_map<std::uint64_t, std::uint32_t> bigram;
+    };
+    const CountsDelta& Delta() const { return delta_; }
+    void ClearDelta() { delta_ = {}; }
+
+    // Commit-clock merge: the clock goes up by delta.commits, and each delta entry lands at the new clock, so
+    // count = effective count + delta, last = new clock. Commit times inside one delta are lost: at 64 commits and
+    // H 2000 an entry reads about 2% high at most. Uses this store's knobs. Doesn't record a delta of its own.
+    void MergeCounts(const CountsDelta& delta);
 #endif
 
 private:
@@ -178,6 +206,7 @@ private:
     std::unordered_map<std::uint64_t, Aged> aged_bi_;
     std::unordered_map<TokenID, Aged> aged_succ_;
     Aged aged_total_;
+    CountsDelta delta_;
     mutable std::uint64_t adjust_calls_ = 0;
     mutable std::uint64_t adjust_hits_ = 0;
 #endif

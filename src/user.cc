@@ -1,9 +1,16 @@
-// Modified by the weave-ime project (2026): experiment branch weave-learning only: SIME_WEAVE_LEARNING adds a commit clock, lazily decayed per-entry counts, a bigram-only switch, a fixed bound on the adjustment and a counts-only file (Phase 5 F14).
+// Modified by the weave-ime project (2026): SIME_WEAVE_LEARNING (default 0) adds a commit clock, lazily decayed per-entry counts, a bigram-only switch, a fixed bound on the adjustment, a counts-only file with strict loading, pruning and a merge of what an engine taught (Phase 5 F14, Docs/plans/phase-5-unfreeze.md).
 #include "user.h"
 
+#if SIME_WEAVE_LEARNING
+#include "overlay.h"
+#endif
+
 #include <algorithm>
+#include <cerrno>
 #include <cmath>
+#include <cstdlib>
 #include <fstream>
+#include <functional>
 #include <istream>
 #include <limits>
 #include <ostream>
@@ -92,6 +99,7 @@ void UserSentence::Clear() {
     aged_bi_.clear();
     aged_succ_.clear();
     aged_total_ = {};
+    delta_ = {};
 #endif
 }
 
@@ -487,9 +495,11 @@ void UserSentence::Bump(Aged& e, std::uint64_t now, float_t half_life, float_t d
 void UserSentence::AgeToken(TokenID prev, TokenID token) {
     Bump(aged_uni_[token], clock_, learn_.half_life_uni, 1.0);
     Bump(aged_total_, clock_, learn_.half_life_uni, 1.0);
+    ++delta_.unigram[token];
     if (prev == NotToken) {
         return;
     }
+    ++delta_.bigram[BigramKey(prev, token)];
     Aged& bi = aged_bi_[BigramKey(prev, token)];
     const bool fresh = Effective(bi, clock_, learn_.half_life_bi) <= kBigramDiscount;
     Bump(bi, clock_, learn_.half_life_bi, 1.0);
@@ -500,6 +510,8 @@ void UserSentence::AgeToken(TokenID prev, TokenID token) {
 
 void UserSentence::NoteCommit(std::size_t unlearned_tokens) {
     ++clock_;
+    ++delta_.commits;
+    delta_.unlearned_tokens += unlearned_tokens;
     if (unlearned_tokens > 0 && (learn_.half_life_uni > 0.0 || learn_.half_life_bi > 0.0)) {
         Bump(aged_total_, clock_, learn_.half_life_uni, static_cast<float_t>(unlearned_tokens));
     }
@@ -575,13 +587,61 @@ float_t UserSentence::AgedAdjustment(TokenID prev, TokenID cur, float_t lm_step)
     return Mix(pr_user, lm_step);
 }
 
+namespace {
+
+constexpr const char* kCountsHeader = "SIME_USER_COUNTS_V1";
+constexpr float_t kPrefixFloor = 0.05;
+
+std::vector<std::string> Fields(std::string_view line) {
+    std::vector<std::string> out;
+    std::size_t b = 0;
+    for (;;) {
+        const std::size_t e = line.find(' ', b);
+        out.emplace_back(line.substr(b, e == std::string_view::npos ? e : e - b));
+        if (e == std::string_view::npos) {
+            return out;
+        }
+        b = e + 1;
+    }
+}
+
+bool ParseU64(const std::string& s, std::uint64_t& out) {
+    if (s.empty() || s.find_first_not_of("0123456789") != std::string::npos) {
+        return false;
+    }
+    errno = 0;
+    out = std::strtoull(s.c_str(), nullptr, 10);
+    return errno == 0;
+}
+
+bool ParseCount(const std::string& s, float_t& out) {
+    char* end = nullptr;
+    errno = 0;
+    out = std::strtod(s.c_str(), &end);
+    return !s.empty() && errno == 0 && *end == '\0' && std::isfinite(out) && out >= 0.0;
+}
+
+bool GoodToken(std::uint64_t id, const std::function<bool(TokenID)>& token_ok) {
+    if (id == NotToken || id > std::numeric_limits<TokenID>::max()) {
+        return false;
+    }
+#if SIME_WEAVE_OVERLAY
+    if (Overlay::IsToken(static_cast<TokenID>(id))) {
+        return false;
+    }
+#endif
+    return !token_ok || token_ok(static_cast<TokenID>(id));
+}
+
+}  // namespace
+
 bool UserSentence::SaveCounts(const std::filesystem::path& path, std::string_view vocab_sig) const {
-    std::ofstream out(path);
+    std::ofstream out(path, std::ios::binary);
     if (!out.is_open()) {
         return false;
     }
     out.precision(17);
-    out << "SIME_USER_COUNTS_EXP1\n" << kVocabPrefix << vocab_sig << '\n';
+    out << kCountsHeader << '\n' << kVocabPrefix << vocab_sig << '\n';
     out << "CLOCK " << clock_ << '\n';
     out << "TOTAL " << total_unigram_count_ << ' ' << aged_total_.count << ' ' << aged_total_.last << '\n';
     std::vector<std::pair<std::uint64_t, std::string>> lines;
@@ -591,62 +651,192 @@ bool UserSentence::SaveCounts(const std::filesystem::path& path, std::string_vie
         s << key << ' ' << n << ' ' << a.count << ' ' << a.last;
         return s.str();
     };
-    for (const auto& [k, n] : unigram_) {
-        auto it = aged_uni_.find(k);
-        lines.emplace_back(k, "U " + row(k, n, it == aged_uni_.end() ? Aged{} : it->second));
+    auto count_of = [](const auto& map, auto key) -> std::uint32_t {
+        auto it = map.find(key);
+        return it == map.end() ? 0 : it->second;
+    };
+    // The aged maps hold every entry: an eviction lowers the integer counts only.
+    for (const auto& [k, a] : aged_uni_) {
+        lines.emplace_back(k, "U " + row(k, count_of(unigram_, k), a));
     }
-    for (const auto& [k, n] : distinct_successors_) {
-        auto it = aged_succ_.find(k);
-        lines.emplace_back(k, "S " + row(k, n, it == aged_succ_.end() ? Aged{} : it->second));
+    for (const auto& [k, a] : aged_succ_) {
+        lines.emplace_back(k, "S " + row(k, count_of(distinct_successors_, k), a));
     }
-    for (const auto& [k, n] : bigram_) {
-        auto it = aged_bi_.find(k);
-        lines.emplace_back(k, "B " + row(k, n, it == aged_bi_.end() ? Aged{} : it->second));
+    for (const auto& [k, a] : aged_bi_) {
+        lines.emplace_back(k, "B " + row(k, count_of(bigram_, k), a));
     }
     std::sort(lines.begin(), lines.end());
     for (const auto& l : lines) {
         out << l.second << '\n';
     }
+    out << "END " << lines.size() << '\n';
+    out.close();
     return static_cast<bool>(out);
 }
 
-bool UserSentence::LoadCounts(const std::filesystem::path& path, std::string_view vocab_sig) {
-    std::ifstream in(path);
-    std::string line;
-    if (!in.is_open() || !std::getline(in, line) || line != "SIME_USER_COUNTS_EXP1" || !std::getline(in, line) ||
-        (!vocab_sig.empty() && line != std::string(kVocabPrefix) + std::string(vocab_sig))) {
+bool UserSentence::LoadCounts(const std::filesystem::path& path, std::string_view vocab_sig,
+                              const std::function<bool(TokenID)>& token_ok) {
+    std::ifstream in(path, std::ios::binary);
+    if (!in.is_open()) {
         return false;
     }
-    LearnConfig keep = learn_;
-    Clear();
-    learn_ = keep;
-    while (std::getline(in, line)) {
-        std::istringstream s(line);
-        std::string tag;
-        s >> tag;
-        if (tag == "CLOCK") {
-            s >> clock_;
-        } else if (tag == "TOTAL") {
-            s >> total_unigram_count_ >> aged_total_.count >> aged_total_.last;
-        } else {
-            std::uint64_t key = 0, last = 0;
-            std::uint32_t n = 0;
-            float_t count = 0.0;
-            s >> key >> n >> count >> last;
-            const Aged a{count, last};
-            if (tag == "U") {
-                unigram_[static_cast<TokenID>(key)] = n;
-                aged_uni_[static_cast<TokenID>(key)] = a;
-            } else if (tag == "S") {
-                distinct_successors_[static_cast<TokenID>(key)] = n;
-                aged_succ_[static_cast<TokenID>(key)] = a;
-            } else if (tag == "B") {
-                bigram_[key] = n;
-                aged_bi_[key] = a;
+    std::ostringstream all;
+    all << in.rdbuf();
+    const std::string text = all.str();
+    if (text.empty() || text.back() != '\n') {
+        return false;
+    }
+    std::vector<std::string_view> lines;
+    for (std::size_t b = 0; b < text.size();) {
+        const std::size_t e = text.find('\n', b);
+        lines.emplace_back(std::string_view(text).substr(b, e - b));
+        b = e + 1;
+    }
+    if (lines.size() < 5 || lines[0] != kCountsHeader || lines[1].substr(0, kVocabPrefix.size()) != kVocabPrefix ||
+        (!vocab_sig.empty() && lines[1].substr(kVocabPrefix.size()) != vocab_sig)) {
+        return false;
+    }
+    std::uint64_t clock = 0, total = 0, rows = 0;
+    Aged aged_total;
+    auto clock_row = Fields(lines[2]);
+    auto total_row = Fields(lines[3]);
+    auto end_row = Fields(lines.back());
+    if (clock_row.size() != 2 || clock_row[0] != "CLOCK" || !ParseU64(clock_row[1], clock) || total_row.size() != 4 ||
+        total_row[0] != "TOTAL" || !ParseU64(total_row[1], total) || total > std::numeric_limits<std::uint32_t>::max() ||
+        !ParseCount(total_row[2], aged_total.count) || !ParseU64(total_row[3], aged_total.last) ||
+        aged_total.last > clock || end_row.size() != 2 || end_row[0] != "END" || !ParseU64(end_row[1], rows) ||
+        rows != lines.size() - 5) {
+        return false;
+    }
+
+    std::unordered_map<TokenID, std::uint32_t> unigram, succ;
+    std::unordered_map<std::uint64_t, std::uint32_t> bigram;
+    std::unordered_map<TokenID, Aged> aged_uni, aged_succ;
+    std::unordered_map<std::uint64_t, Aged> aged_bi;
+    for (std::size_t i = 4; i + 1 < lines.size(); ++i) {
+        auto f = Fields(lines[i]);
+        std::uint64_t key = 0, n = 0;
+        Aged a;
+        if (f.size() != 5 || !ParseU64(f[1], key) || !ParseU64(f[2], n) || n > std::numeric_limits<std::uint32_t>::max() ||
+            !ParseCount(f[3], a.count) || !ParseU64(f[4], a.last) || a.last > clock) {
+            return false;
+        }
+        const auto count = static_cast<std::uint32_t>(n);
+        if (f[0] == "U" || f[0] == "S") {
+            if (!GoodToken(key, token_ok)) {
+                return false;
             }
+            const auto id = static_cast<TokenID>(key);
+            auto& map = f[0] == "U" ? aged_uni : aged_succ;
+            auto& ints = f[0] == "U" ? unigram : succ;
+            if (!map.emplace(id, a).second) {
+                return false;
+            }
+            if (count > 0) {
+                ints.emplace(id, count);
+            }
+        } else if (f[0] == "B") {
+            if (!GoodToken(key >> 32U, token_ok) || !GoodToken(key & 0xFFFFFFFFu, token_ok) ||
+                !aged_bi.emplace(key, a).second) {
+                return false;
+            }
+            if (count > 0) {
+                bigram.emplace(key, count);
+            }
+        } else {
+            return false;
         }
     }
+    for (const auto& [k, a] : aged_bi) {
+        if (!aged_uni.count(static_cast<TokenID>(k >> 32U)) || !aged_uni.count(static_cast<TokenID>(k & 0xFFFFFFFFu))) {
+            return false;
+        }
+    }
+    for (const auto& [k, a] : aged_succ) {
+        if (!aged_uni.count(k)) {
+            return false;
+        }
+    }
+
+    sentences_.clear();
+    unigram_ = std::move(unigram);
+    bigram_ = std::move(bigram);
+    distinct_successors_ = std::move(succ);
+    total_unigram_count_ = static_cast<std::uint32_t>(total);
+    clock_ = clock;
+    aged_uni_ = std::move(aged_uni);
+    aged_bi_ = std::move(aged_bi);
+    aged_succ_ = std::move(aged_succ);
+    aged_total_ = aged_total;
+    delta_ = {};
     return true;
+}
+
+std::size_t UserSentence::Prune(std::size_t max_pairs) {
+    std::vector<std::pair<std::uint64_t, std::uint64_t>> keep;  // last, key
+    std::vector<std::uint64_t> drop;
+    for (const auto& [k, e] : aged_bi_) {
+        if (Effective(e, clock_, learn_.half_life_bi) > kBigramDiscount) {
+            keep.emplace_back(e.last, k);
+        } else {
+            drop.push_back(k);
+        }
+    }
+    if (keep.size() > max_pairs) {  // newest first; the key breaks a tie, so the result doesn't depend on hash order
+        std::sort(keep.begin(), keep.end(), std::greater<>());
+        for (std::size_t i = max_pairs; i < keep.size(); ++i) {
+            drop.push_back(keep[i].second);
+        }
+        keep.resize(max_pairs);
+    }
+    for (auto k : drop) {
+        aged_bi_.erase(k);
+        auto it = bigram_.find(k);
+        if (it != bigram_.end()) {
+            DecBigramTrackSucc(bigram_, distinct_successors_, static_cast<TokenID>(k >> 32U), k, it->second);
+        }
+    }
+    std::unordered_map<TokenID, bool> used;
+    for (const auto& kv : keep) {
+        used[static_cast<TokenID>(kv.second >> 32U)] = true;
+        used[static_cast<TokenID>(kv.second & 0xFFFFFFFFu)] = true;
+    }
+    for (auto it = aged_uni_.begin(); it != aged_uni_.end();) {
+        if (used.count(it->first) || Effective(it->second, clock_, learn_.half_life_uni) >= kPrefixFloor) {
+            ++it;
+            continue;
+        }
+        unigram_.erase(it->first);
+        aged_succ_.erase(it->first);
+        distinct_successors_.erase(it->first);
+        it = aged_uni_.erase(it);
+    }
+    return drop.size();
+}
+
+void UserSentence::MergeCounts(const CountsDelta& delta) {
+    clock_ += delta.commits;
+    std::uint64_t tokens = 0;
+    for (const auto& [k, n] : delta.unigram) {
+        IncCount(unigram_, k, n);
+        total_unigram_count_ += n;
+        tokens += n;
+        Bump(aged_uni_[k], clock_, learn_.half_life_uni, static_cast<float_t>(n));
+    }
+    if (learn_.half_life_uni > 0.0 || learn_.half_life_bi > 0.0) {
+        tokens += delta.unlearned_tokens;  // as NoteCommit does
+    }
+    Bump(aged_total_, clock_, learn_.half_life_uni, static_cast<float_t>(tokens));
+    for (const auto& [k, n] : delta.bigram) {
+        const auto prev = static_cast<TokenID>(k >> 32U);
+        Aged& bi = aged_bi_[k];
+        const bool fresh = Effective(bi, clock_, learn_.half_life_bi) <= kBigramDiscount;
+        Bump(bi, clock_, learn_.half_life_bi, static_cast<float_t>(n));
+        if (fresh) {
+            Bump(aged_succ_[prev], clock_, learn_.half_life_uni, 1.0);
+        }
+        IncBigramTrackSucc(bigram_, distinct_successors_, prev, k, n);
+    }
 }
 #endif  // SIME_WEAVE_LEARNING
 
@@ -789,9 +979,18 @@ void UserSentence::Rebuild() {
     bigram_.clear();
     distinct_successors_.clear();
     total_unigram_count_ = 0;
+#if SIME_WEAVE_LEARNING
+    aged_uni_.clear();
+    aged_bi_.clear();
+    aged_succ_.clear();
+    aged_total_ = {};
+#endif
     for (const auto& entry : sentences_) {
         AdjustEntryCounts(entry, +1);
     }
+#if SIME_WEAVE_LEARNING
+    delta_ = {};
+#endif
 }
 
 } // namespace sime

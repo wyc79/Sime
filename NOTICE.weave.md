@@ -260,10 +260,10 @@ Modified files:
   upstream regardless of `core.autocrlf`. The LFS rule was dropped because
   this fork tracks no `dict/*` files.
 
-- `include/user.h`, `src/user.cc` (local experiment branch `weave-learning`, weave-ime Phase 5 F14; never on `weave`):
+- `include/user.h`, `src/user.cc` (weave-ime Phase 5 F14, Docs/plans/phase-5-unfreeze.md Task 1):
   `SIME_WEAVE_LEARNING`, default 0, adds a commit clock, lazily decayed per-entry counts, a bigram-only switch, a
-  fixed bound on the adjustment and a counts-only file. With the macro at 0, or at 1 with every knob at its default,
-  the model is unchanged.
+  fixed bound on the adjustment, a counts-only file with strict loading, pruning, and a merge of what an engine
+  taught. With the macro at 0, or at 1 with every knob at its default, the model is unchanged.
 
 Added files:
 
