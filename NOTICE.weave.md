@@ -24,11 +24,11 @@ no longer behaves like upstream Sime**:
 | `SIME_WEAVE_OVERLAY` (`include/overlay.h`; Phase 4.5 Task 8c) | 1 | 0 (no overlay) | the lexicon overlay is compiled in; it stays empty, and decoding unchanged, until `LoadOverlay` |
 | `SIME_WEAVE_INCREMENTAL` (`include/sime.h`; Phase 4.5 Task 8c) | 1 | 0 (no incremental decoding) | `DecodeSentence` reuses the previous decode of the composition (output equal to a full decode); `SetIncremental(false)` switches it off |
 
-**Experiment, not a default (local branch `weave-typo`, weave-ime Phase 5 owner feedback).**
+**Swapped-letter edges, default 0 until the unfreeze (local branch `weave-unfreeze`, weave-ime Phase 5 unfreeze Task 2).**
 `SIME_WEAVE_SWAP_EDGE` (`include/sime.h`, default 0, compiled out): `Sime::AppendSwapEdges`, at the end of
-`BuildSentenceNet`, adds extra pinyin edges for words reached with two adjacent typed letters swapped, or with one of
-two equal adjacent letters dropped, at the fixed runtime costs of `SetSwapCost` (negative, the initial value: off);
-its third argument sets the shortest swap edge in typed bytes (default 2).
+`BuildSentenceNet`, adds extra pinyin edges for words reached with two adjacent typed letters swapped, at the runtime
+cost of `SetSwapCost(cost, min_span)` (a negative cost, the initial value, is off; `min_span` is the shortest swap
+edge in typed bytes, default 2). Doubled letters are not corrected.
 Exact edges are not changed or filtered. English lookups, `DecodeStr`, `GetTokens` and the T9 path are not touched.
 Touches `include/sime.h`, `src/sime.cc`.
 

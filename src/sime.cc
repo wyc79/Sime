@@ -1,4 +1,4 @@
-// Modified by the weave-ime project (2026): ComputeEdgePenalties gains the SIME_WEAVE_PENALTY_RULE scoped English penalty; English DAT lookups gain SIME_WEAVE_CASE_FOLD (folded and, for a span with capitals, as-typed lookups merged per folded key) and AbbreviatePieces matches letters ignoring case under it; InitNet gains the SIME_WEAVE_LITERAL_EDGE literal-letters edge (with SIME_WEAVE_LITERAL_PER_LETTER and SIME_WEAVE_LITERAL_NONPINYIN); NormalizeInput, InitNet and DecodeSentence gain SIME_WEAVE_SPACE_BOUNDARY and SIME_WEAVE_RAW_CNT; adds Sime::TokenizeContext (Cutter over the last N code points of committed text; additive, no macro); adds the SIME_WEAVE_OVERLAY lexicon overlay (overlay English edges at a bounded cost with a history break, display casing, dedup by key; default 1 since the Task 8c fork commit b605d07); adds the candidate-contract provenance (edge flags kept through State and Backtrace, DecodeResult::segments and ::basis from DecodeSentence; additive, no macro); DecodeSentence split into BuildSentenceNet / SentenceResults and Process into Relax, with segments filled only for emitted candidates (no output change); adds SIME_WEAVE_INCREMENTAL incremental decoding (snapshots per normalised prefix, Process resumed at the first changed column, generation counter, fallback; default 1 since Task 8c, runtime switch Sime::SetIncremental); adds the SIME_WEAVE_SWAP_EDGE experiment (AppendSwapEdges at the end of BuildSentenceNet, sentence decoder only; default 0, compiled out).
+// Modified by the weave-ime project (2026): ComputeEdgePenalties gains the SIME_WEAVE_PENALTY_RULE scoped English penalty; English DAT lookups gain SIME_WEAVE_CASE_FOLD (folded and, for a span with capitals, as-typed lookups merged per folded key) and AbbreviatePieces matches letters ignoring case under it; InitNet gains the SIME_WEAVE_LITERAL_EDGE literal-letters edge (with SIME_WEAVE_LITERAL_PER_LETTER and SIME_WEAVE_LITERAL_NONPINYIN); NormalizeInput, InitNet and DecodeSentence gain SIME_WEAVE_SPACE_BOUNDARY and SIME_WEAVE_RAW_CNT; adds Sime::TokenizeContext (Cutter over the last N code points of committed text; additive, no macro); adds the SIME_WEAVE_OVERLAY lexicon overlay (overlay English edges at a bounded cost with a history break, display casing, dedup by key; default 1 since the Task 8c fork commit b605d07); adds the candidate-contract provenance (edge flags kept through State and Backtrace, DecodeResult::segments and ::basis from DecodeSentence; additive, no macro); DecodeSentence split into BuildSentenceNet / SentenceResults and Process into Relax, with segments filled only for emitted candidates (no output change); adds SIME_WEAVE_INCREMENTAL incremental decoding (snapshots per normalised prefix, Process resumed at the first changed column, generation counter, fallback; default 1 since Task 8c, runtime switch Sime::SetIncremental); adds the SIME_WEAVE_SWAP_EDGE swapped-letter edges (AppendSwapEdges at the end of BuildSentenceNet, sentence decoder only; default 0, compiled out).
 #include "sime.h"
 
 #include "cut.h"
@@ -2019,13 +2019,12 @@ void Sime::BuildSentenceNet(std::string_view lower, std::vector<Node>& net) cons
 }
 
 #if SIME_WEAVE_SWAP_EDGE
-void Sime::SetSwapCost(float_t swap_cost, float_t double_cost, std::size_t min_span) {
+void Sime::SetSwapCost(float_t swap_cost, std::size_t min_span) {
     std::lock_guard<std::mutex> lock(decode_mutex_);
 #if SIME_WEAVE_INCREMENTAL
     BumpGeneration();
 #endif
     swap_cost_ = swap_cost;
-    double_cost_ = double_cost;
     swap_min_span_ = min_span;
 }
 
@@ -2037,7 +2036,7 @@ Sime::LatticeWork Sime::LastLatticeWork() const {
 void Sime::AppendSwapEdges(std::vector<Node>& net, std::string_view input) const {
     using States = std::vector<trie::DoubleArray::PinyinState>;
     LatticeWork work;
-    const bool swaps = swap_cost_ >= 0, doubles = double_cost_ >= 0;
+    const bool swaps = swap_cost_ >= 0;
     const auto& dat = dict_.Dat(Dict::LetterPinyin);
     const std::size_t total = input.size();
     auto letter = [](char c) { return c >= 'a' && c <= 'z'; };
@@ -2047,9 +2046,9 @@ void Sime::AppendSwapEdges(std::vector<Node>& net, std::string_view input) const
         std::erase_if(st, [](const auto& x) { return x.fuzzy; });
         ++work.walk_steps;
     };
-    for (std::size_t s = 0; s < total && (swaps || doubles); ++s) {
+    for (std::size_t s = 0; s < total && swaps; ++s) {
         if (input[s] == '\'' || input[s] == ' ') continue;
-        std::vector<Link> swap_found, double_found;
+        std::vector<Link> swap_found;
         std::unordered_set<std::uint64_t> seen;  // (token, end): a span's token once, an exact edge first
         auto key = [](TokenID id, std::size_t end) {
             return (static_cast<std::uint64_t>(id) << 32) | end;
@@ -2057,7 +2056,7 @@ void Sime::AppendSwapEdges(std::vector<Node>& net, std::string_view input) const
         for (const auto& e : net[s].es)
             if (!IsNoToken(e.id) && !e.english) seen.insert(key(e.id, e.end));
         auto record = [&](const States& st, std::size_t end, float_t cost, std::vector<Link>& out) {
-            if (&out == &swap_found && end - s < swap_min_span_) return;
+            if (end - s < swap_min_span_) return;
             for (const auto& r : dat.CollectPrefixMatchesPinyin(st, end - s, 512, false)) {
                 const auto entry = dict_.GetEntry(Dict::LetterPinyin, r.value);
                 for (std::uint32_t i = 0; i < entry.count; ++i) {
@@ -2085,20 +2084,12 @@ void Sime::AppendSwapEdges(std::vector<Node>& net, std::string_view input) const
                     step(branch, input[p]);
                     if (!branch.empty()) walk_on(std::move(branch), p + 2, swap_cost_, swap_found);
                 }
-                if (doubles && input[p] == input[p + 1]) {
-                    States branch = exact;
-                    step(branch, input[p]);
-                    if (!branch.empty()) walk_on(std::move(branch), p + 2, double_cost_, double_found);
-                }
             }
             step(exact, input[p]);
         }
         PruneNode(swap_found);
-        PruneNode(double_found);
         work.swap_edges += swap_found.size();
-        work.double_edges += double_found.size();
         net[s].es.insert(net[s].es.end(), swap_found.begin(), swap_found.end());
-        net[s].es.insert(net[s].es.end(), double_found.begin(), double_found.end());
     }
     for (const auto& col : net) work.edges += col.es.size();
     lattice_work_ = work;
