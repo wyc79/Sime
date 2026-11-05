@@ -297,10 +297,22 @@ public:
         std::string_view start,
         const std::vector<TokenID>& context,
         std::size_t extra = 0) const;
+#if SIME_WEAVE_SWAP_EDGE
+    // Edge cost for swapped letters; a negative cost switches the edges off. A swap edge covers at least min_span
+    // typed bytes.
+    void SetSwapCost(float_t swap_cost, std::size_t min_span = 2);
+    // Work counts of the last lattice built by the sentence decoder.
+    struct LatticeWork {
+        std::size_t edges = 0;         // edges of the whole lattice, sentinels and swap edges included
+        std::size_t swap_edges = 0;    // of which added by swapped letters
+        std::size_t walk_steps = 0;    // pinyin trie steps of the corrected walks (the exact lookup not counted)
+    };
+    LatticeWork LastLatticeWork() const;
+#endif
 #if SIME_WEAVE_READING_PRIOR
-    // Lines `character<TAB>reading<TAB>penalty` (UTF-8; penalty finite and >= 0, natural-log cost, or the word
-    // `drop`, which removes the edge altogether). Replaces any
-    // earlier table. Fails, leaving the table empty, on a malformed line or a pair the dictionary does not hold as a
+    // Lines `character<TAB>reading<TAB>penalty` (UTF-8; penalty a plain decimal number in [0, 1000], natural-log
+    // cost, parsed independently of the C locale, or the word `drop`, which removes the edge altogether). A pair
+    // listed twice, an empty penalty and a hex or out-of-range number are refused. Replaces any earlier table. Fails, leaving the table empty, on a malformed line or a pair the dictionary does not hold as a
     // single-character item.
     bool LoadReadingPrior(const std::filesystem::path& path, std::string* error = nullptr);
     std::size_t ReadingPriorSize() const;
@@ -340,18 +352,6 @@ public:
     void SetIncrementalDiagnostics(bool on);
     IncrementalStats GetIncrementalStats() const;
     DecodeInfo LastDecodeInfo() const;
-#if SIME_WEAVE_SWAP_EDGE
-    // Edge cost for swapped letters; a negative cost switches the edges off. A swap edge covers at least min_span
-    // typed bytes.
-    void SetSwapCost(float_t swap_cost, std::size_t min_span = 2);
-    // Work counts of the last lattice built by the sentence decoder.
-    struct LatticeWork {
-        std::size_t edges = 0;         // edges of the whole lattice, sentinels and swap edges included
-        std::size_t swap_edges = 0;    // of which added by swapped letters
-        std::size_t walk_steps = 0;    // pinyin trie steps of the corrected walks (the exact lookup not counted)
-    };
-    LatticeWork LastLatticeWork() const;
-#endif
     // A full decode that neither reads nor changes the snapshots (the differential's reference).
     std::vector<DecodeResult> DecodeSentenceFull(std::string_view input,
                                                  const std::vector<TokenID>& context,
@@ -368,6 +368,9 @@ private:
         float_t penalty = 0;           // syllable mismatch penalty
         bool expansion = false;        // tail-expansion edge (lower priority in PruneNode)
         bool english = false;          // edge from English DAT (lower priority than full pinyin)
+#if SIME_WEAVE_SWAP_EDGE
+        bool swap = false;             // edge added by AppendSwapEdges (the typed letters are not the reading)
+#endif
     };
 
     struct Node {
@@ -547,11 +550,11 @@ private:
     Overlay overlay_;
     DisplayCasing casing_ = DisplayCasing::kCanonical;
     bool dedup_by_key_ = false;
+#endif
 #if SIME_WEAVE_SWAP_EDGE
     float_t swap_cost_ = -1;
     std::size_t swap_min_span_ = 2;
     mutable LatticeWork lattice_work_;
-#endif
 #endif
 #if SIME_WEAVE_READING_PRIOR
     // token -> (reading, penalty); only single-character tokens with a listed reading.

@@ -28,7 +28,12 @@ no longer behaves like upstream Sime**:
 `SIME_WEAVE_SWAP_EDGE` (`include/sime.h`, default 0, compiled out): `Sime::AppendSwapEdges`, at the end of
 `BuildSentenceNet`, adds extra pinyin edges for words reached with two adjacent typed letters swapped, at the runtime
 cost of `SetSwapCost(cost, min_span)` (a negative cost, the initial value, is off; `min_span` is the shortest swap
-edge in typed bytes, default 2). Doubled letters are not corrected.
+edge in typed bytes, default 2). Doubled letters are not corrected. The swap members compile with the overlay and
+incremental blocks on or off. A swap edge takes no learning adjustment, and neither does the step after it (`Relax`;
+`State::kEdgeSwap`): a picked correction teaches the pairs around its word, and a path through them would otherwise
+beat the clean reading of a neighbouring input by more than the swap cost. Swap edges also skip the reading table
+(`ApplyReadingPrior` runs before they are added): a listed reading typed with swapped letters pays nothing, and a
+`drop` reading can come back through a swap edge. The shipped table has no `drop` line.
 Exact edges are not changed or filtered. English lookups, `DecodeStr`, `GetTokens` and the T9 path are not touched.
 Touches `include/sime.h`, `src/sime.cc`.
 
@@ -37,7 +42,9 @@ Touches `include/sime.h`, `src/sime.cc`.
 table of (character, reading, penalty), and a single-character pinyin edge on a listed pair pays that penalty
 in addition to its other penalties (`ApplyReadingPrior`, after `ComputeEdgePenalties` and before `PruneNode`); a line
 whose penalty is `drop` removes the edge (`weave-reading-prior2` only).
-Multi-character words are not touched. The table is an input, not part of Sime: weave-ime keeps its table at
+Multi-character words are not touched. A table line is a plain decimal penalty in [0, 1000] (read with `from_chars`, so
+the C locale does not matter) or `drop`; an empty penalty, a hex or out-of-range number and a pair listed twice are refused
+at load. `overlay.cc` reads the L2 Zipf column with `from_chars` for the same reason. The table is an input, not part of Sime: weave-ime keeps its table at
 `benchmarks/results/phase5/polyphone/reading_r.tsv`. **That table derives from the Unihan database (Unicode 18.0.0,
 Unicode License) and from Luna Pinyin (rime-luna-pinyin, LGPL-3.0)**, and `LUNA_LICENSE.txt` stays beside it.
 Touches `include/sime.h`, `src/sime.cc`.

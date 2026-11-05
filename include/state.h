@@ -53,6 +53,7 @@ struct State {
 
     static constexpr std::uint8_t kEdgeEnglish = 1;
     static constexpr std::uint8_t kEdgeExpansion = 2;
+    static constexpr std::uint8_t kEdgeSwap = 4;  // SIME_WEAVE_SWAP_EDGE: an edge that reads swapped letters
 
     State() = default;
 

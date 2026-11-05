@@ -1,4 +1,4 @@
-// Modified by the weave-ime project (2026): ComputeEdgePenalties gains the SIME_WEAVE_PENALTY_RULE scoped English penalty; English DAT lookups gain SIME_WEAVE_CASE_FOLD (folded and, for a span with capitals, as-typed lookups merged per folded key) and AbbreviatePieces matches letters ignoring case under it; InitNet gains the SIME_WEAVE_LITERAL_EDGE literal-letters edge (with SIME_WEAVE_LITERAL_PER_LETTER and SIME_WEAVE_LITERAL_NONPINYIN); NormalizeInput, InitNet and DecodeSentence gain SIME_WEAVE_SPACE_BOUNDARY and SIME_WEAVE_RAW_CNT; adds Sime::TokenizeContext (Cutter over the last N code points of committed text; additive, no macro); adds the SIME_WEAVE_OVERLAY lexicon overlay (overlay English edges at a bounded cost with a history break, display casing, dedup by key; default 1 since the Task 8c fork commit b605d07); adds the candidate-contract provenance (edge flags kept through State and Backtrace, DecodeResult::segments and ::basis from DecodeSentence; additive, no macro); DecodeSentence split into BuildSentenceNet / SentenceResults and Process into Relax, with segments filled only for emitted candidates (no output change); adds SIME_WEAVE_INCREMENTAL incremental decoding (snapshots per normalised prefix, Process resumed at the first changed column, generation counter, fallback; default 1 since Task 8c, runtime switch Sime::SetIncremental); adds the SIME_WEAVE_SWAP_EDGE swapped-letter edges (AppendSwapEdges at the end of BuildSentenceNet, sentence decoder only; default 0, compiled out); adds the SIME_WEAVE_READING_PRIOR rare-reading penalty table (LoadReadingPrior, ApplyReadingPrior after ComputeEdgePenalties in the sentence and word decoders, a `drop` line removes the edge; default 0, compiled out).
+// Modified by the weave-ime project (2026): ComputeEdgePenalties gains the SIME_WEAVE_PENALTY_RULE scoped English penalty; English DAT lookups gain SIME_WEAVE_CASE_FOLD (folded and, for a span with capitals, as-typed lookups merged per folded key) and AbbreviatePieces matches letters ignoring case under it; InitNet gains the SIME_WEAVE_LITERAL_EDGE literal-letters edge (with SIME_WEAVE_LITERAL_PER_LETTER and SIME_WEAVE_LITERAL_NONPINYIN); NormalizeInput, InitNet and DecodeSentence gain SIME_WEAVE_SPACE_BOUNDARY and SIME_WEAVE_RAW_CNT; adds Sime::TokenizeContext (Cutter over the last N code points of committed text; additive, no macro); adds the SIME_WEAVE_OVERLAY lexicon overlay (overlay English edges at a bounded cost with a history break, display casing, dedup by key; default 1 since the Task 8c fork commit b605d07); adds the candidate-contract provenance (edge flags kept through State and Backtrace, DecodeResult::segments and ::basis from DecodeSentence; additive, no macro); DecodeSentence split into BuildSentenceNet / SentenceResults and Process into Relax, with segments filled only for emitted candidates (no output change); adds SIME_WEAVE_INCREMENTAL incremental decoding (snapshots per normalised prefix, Process resumed at the first changed column, generation counter, fallback; default 1 since Task 8c, runtime switch Sime::SetIncremental); adds the SIME_WEAVE_SWAP_EDGE swapped-letter edges (AppendSwapEdges at the end of BuildSentenceNet, sentence decoder only; default 0, compiled out; a swap edge takes no learning adjustment); adds the SIME_WEAVE_READING_PRIOR rare-reading penalty table (LoadReadingPrior, ApplyReadingPrior after ComputeEdgePenalties in the sentence and word decoders, a `drop` line removes the edge; default 0, compiled out).
 #include "sime.h"
 
 #include "cut.h"
@@ -10,6 +10,7 @@
 #include <cmath>
 #include <cstring>
 #if SIME_WEAVE_READING_PRIOR
+#include <charconv>
 #include <fstream>
 #include <limits>
 #include <map>
@@ -505,11 +506,20 @@ bool Sime::LoadReadingPrior(const std::filesystem::path& path, std::string* erro
         const std::string reading = line.substr(t1 + 1, t2 - t1 - 1);
         const std::string value = line.substr(t2 + 1);
         const bool drop = value == "drop";
-        char* end = nullptr;
-        const double p = drop ? std::numeric_limits<double>::infinity() : std::strtod(value.c_str(), &end);
-        const bool bad_number = !drop && (*end != '\0' || !std::isfinite(p) || p < 0);
+        // from_chars: a plain decimal number, the same under every C locale (strtod reads "4,0000" under a German
+        // one, and accepts hex and a trailing blank). An empty penalty, a hex number and a value above 1000 (it would
+        // overflow float_t into a silent drop) are malformed.
+        double p = drop ? std::numeric_limits<double>::infinity() : 0.0;
+        bool bad_number = false;
+        if (!drop) {
+            const auto r = std::from_chars(value.data(), value.data() + value.size(), p);
+            bad_number = r.ec != std::errc() || r.ptr != value.data() + value.size() || !std::isfinite(p) || p < 0 ||
+                         p > 1000.0;
+        }
         if (ch.size() != 1 || reading.empty() || bad_number) return fail("malformed line: " + line);
-        want[{ch, reading}] = static_cast<float_t>(p);
+        if (!want.emplace(std::make_pair(ch, reading), static_cast<float_t>(p)).second) {
+            return fail("pair listed twice: " + line);
+        }
     }
     const std::size_t wanted = want.size();
     for (std::uint32_t idx = 0;; ++idx) {
@@ -1940,7 +1950,11 @@ namespace {
 template <class L>
 std::uint8_t EdgeFlags(const L& l) {
     return static_cast<std::uint8_t>((l.english ? State::kEdgeEnglish : 0) |
-                                     (l.expansion ? State::kEdgeExpansion : 0));
+                                     (l.expansion ? State::kEdgeExpansion : 0)
+#if SIME_WEAVE_SWAP_EDGE
+                                     | (l.swap ? State::kEdgeSwap : 0)
+#endif
+                                     );
 }
 }  // namespace
 
@@ -1965,7 +1979,15 @@ void Sime::Relax(const State& value, const Link& word, NetStates& target) const 
     cur_pos = next_pos;
 
     float_t user_adjust = 0.0;
-    if (user_sentence_enabled_) {
+#if SIME_WEAVE_SWAP_EDGE
+    // A corrected word collects no learning, nor does the step after it: the pair (previous, swap word) and the pair
+    // (swap word, next) are what a picked correction taught, and a path that takes them would beat the clean reading
+    // of the neighbouring input by more than the swap cost. Every other pair of the path is shared with the exact path.
+    const bool touches_swap = word.swap || (value.backtrace_flags & State::kEdgeSwap) != 0;
+#else
+    const bool touches_swap = false;
+#endif
+    if (user_sentence_enabled_ && !touches_swap) {
         user_adjust = user_sentence_.CostAdjustment(
             value.backtrace_token, word.id, step);
     }
@@ -2150,8 +2172,10 @@ void Sime::AppendSwapEdges(std::vector<Node>& net, std::string_view input) const
             for (const auto& r : dat.CollectPrefixMatchesPinyin(st, end - s, 512, false)) {
                 const auto entry = dict_.GetEntry(Dict::LetterPinyin, r.value);
                 for (std::uint32_t i = 0; i < entry.count; ++i) {
-                    if (seen.insert(key(entry.items[i].id, end)).second)
-                        out.push_back({s, end, entry.items[i].id, entry.items[i].pieces, cost, false, false});
+                    if (!seen.insert(key(entry.items[i].id, end)).second) continue;
+                    Link link{s, end, entry.items[i].id, entry.items[i].pieces, cost, false, false};
+                    link.swap = true;
+                    out.push_back(link);
                 }
             }
         };

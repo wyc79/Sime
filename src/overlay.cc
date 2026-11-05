@@ -1,4 +1,4 @@
-// Added by the weave-ime project (2026): the lexicon overlay behind SIME_WEAVE_OVERLAY (default 1 since Task 8c; compiles to nothing when built with -DSIME_WEAVE_OVERLAY=0): layer files, cross-layer merge, bounded costs, L0 coverage and the overlay English DAT; the contract's spelling slot and L0 cover sources (additive) (see NOTICE.weave.md).
+// Added by the weave-ime project (2026): the lexicon overlay behind SIME_WEAVE_OVERLAY (default 1 since Task 8c; compiles to nothing when built with -DSIME_WEAVE_OVERLAY=0): layer files, cross-layer merge, bounded costs, L0 coverage and the overlay English DAT; the contract's spelling slot and L0 cover sources (additive) (see NOTICE.weave.md). The L2 Zipf column is read with std::from_chars, independent of the C locale (weave-ime Phase 5 unfreeze Task 2).
 #include "overlay.h"
 
 #if SIME_WEAVE_OVERLAY
@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <bitset>
 #include <cerrno>
+#include <charconv>
 #include <cstdlib>
 #include <fstream>
 #include <limits>
@@ -116,10 +117,11 @@ bool Overlay::ReadLayer(int slot, std::string* error) {
         const auto cols = SplitTabs(line);
         if (slot == static_cast<int>(LexLayer::L2)) {
             if (cols.size() != 2 || cols[0].empty()) return fail(n, "an L2 row is key<TAB>zipf");
-            errno = 0;
-            char* end = nullptr;
-            const double z = std::strtod(cols[1].c_str(), &end);
-            if (errno || end == cols[1].c_str() || *end != '\0') return fail(n, "bad zipf " + cols[1]);
+            // from_chars: the same under every C locale (an app running with a German locale reads "3.45" as 3 with strtod)
+            double z = 0.0;
+            const char* const zb = cols[1].data();
+            const auto zr = std::from_chars(zb, zb + cols[1].size(), z);
+            if (zr.ec != std::errc() || zr.ptr != zb + cols[1].size()) return fail(n, "bad zipf " + cols[1]);
             auto& cur = zipf_[cols[0]];
             cur = std::max(cur, z);
             ++stats_.rows[slot];
