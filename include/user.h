@@ -1,4 +1,4 @@
-// Modified by the weave-ime project (2026): SIME_WEAVE_LEARNING (default 0) adds a commit clock, lazily decayed per-entry counts, a bigram-only switch, a fixed bound on the adjustment, a counts-only file with strict loading, pruning and a merge of what an engine taught (Phase 5 F14, Docs/plans/phase-5-unfreeze.md).
+// Modified by the weave-ime project (2026): SIME_WEAVE_LEARNING (default 1 since Phase 5 unfreeze Task 4, was 0) adds a commit clock, lazily decayed per-entry counts, a bigram-only switch, a fixed bound on the adjustment, a counts-only file with strict loading, pruning and a merge of what an engine taught (Phase 5 F14, Docs/plans/phase-5-unfreeze.md).
 #pragma once
 
 #include "common.h"
@@ -14,11 +14,11 @@
 #include <unordered_map>
 #include <vector>
 
-// weave-ime Phase 5 F14: selection learning for the host. 0 (default): this header and user.cc behave as without it.
-// 1: the knobs exist; with all of them at their defaults CostAdjustment still takes the original path, so the
-// output does not change.
+// weave-ime Phase 5 F14: selection learning for the host. 0: this header and user.cc behave as without it.
+// 1 (default since Phase 5 unfreeze Task 4, was 0): the knobs exist; with all of them at their defaults CostAdjustment
+// still takes the original path, so the output does not change.
 #ifndef SIME_WEAVE_LEARNING
-#define SIME_WEAVE_LEARNING 0
+#define SIME_WEAVE_LEARNING 1
 #endif
 
 namespace sime {

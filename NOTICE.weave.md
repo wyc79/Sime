@@ -9,7 +9,7 @@ Per Apache-2.0 section 4, files modified in this fork carry a header line
 
 Each change below is a `SIME_WEAVE_*` macro guarded by `#ifndef`. Until
 weave-ime Phase 2 Task 8 every default reproduced upstream. Since then seven
-defaults differ from upstream, and since Phase 4.5 Task 8c nine, so **a build with no `-D` defines
+defaults differ from upstream, since Phase 4.5 Task 8c nine, and since Phase 5 unfreeze Task 4 twelve, so **a build with no `-D` defines
 no longer behaves like upstream Sime**:
 
 | macro | weave default | upstream value | effect of the weave default |
@@ -23,9 +23,12 @@ no longer behaves like upstream Sime**:
 | `SIME_WEAVE_BEAM_EXACT` (`include/state.h`) | 1 | 0 | exact column beam (fixes upstream's stale bucket keys and state-count drift) |
 | `SIME_WEAVE_OVERLAY` (`include/overlay.h`; Phase 4.5 Task 8c) | 1 | 0 (no overlay) | the lexicon overlay is compiled in; it stays empty, and decoding unchanged, until `LoadOverlay` |
 | `SIME_WEAVE_INCREMENTAL` (`include/sime.h`; Phase 4.5 Task 8c) | 1 | 0 (no incremental decoding) | `DecodeSentence` reuses the previous decode of the composition (output equal to a full decode); `SetIncremental(false)` switches it off |
+| `SIME_WEAVE_LEARNING` (`include/user.h`; Phase 5 unfreeze Task 4) | 1 | 0 (no learning) | the learning store's knobs, strict file and merge are compiled in; with every knob at its default the model is unchanged |
+| `SIME_WEAVE_SWAP_EDGE` (`include/sime.h`; Phase 5 unfreeze Task 4) | 1 | 0 (no swap edges) | swapped-letter edges are compiled in; none are added until `SetSwapCost` gets a cost of 0 or more |
+| `SIME_WEAVE_READING_PRIOR` (`include/sime.h`; Phase 5 unfreeze Task 4) | 1 | 0 (no table) | the rare-reading table is compiled in; nothing changes until `LoadReadingPrior` gets a table |
 
-**Swapped-letter edges, default 0 until the unfreeze (local branch `weave-unfreeze`, weave-ime Phase 5 unfreeze Task 2).**
-`SIME_WEAVE_SWAP_EDGE` (`include/sime.h`, default 0, compiled out): `Sime::AppendSwapEdges`, at the end of
+**Swapped-letter edges (local branch `weave-unfreeze`, weave-ime Phase 5 unfreeze Task 2; default 1 since Task 4, was 0).**
+`SIME_WEAVE_SWAP_EDGE` (`include/sime.h`, default 1: compiled in, and no edge is added until `SetSwapCost` gets a cost of 0 or more): `Sime::AppendSwapEdges`, at the end of
 `BuildSentenceNet`, adds extra pinyin edges for words reached with two adjacent typed letters swapped, at the runtime
 cost of `SetSwapCost(cost, min_span)` (a negative cost, the initial value, is off; `min_span` is the shortest swap
 edge in typed bytes, default 2). Doubled letters are not corrected. The swap members compile with the overlay and
@@ -37,8 +40,8 @@ beat the clean reading of a neighbouring input by more than the swap cost. Swap 
 Exact edges are not changed or filtered. English lookups, `DecodeStr`, `GetTokens` and the T9 path are not touched.
 Touches `include/sime.h`, `src/sime.cc`.
 
-**Rare-reading penalty table, default 0 until the unfreeze (local branch `weave-unfreeze`, weave-ime Phase 5 unfreeze Task 2; from `weave-reading-prior` and `weave-reading-prior2`, F12).**
-`SIME_WEAVE_READING_PRIOR` (`include/sime.h`, default 0, compiled out): `Sime::LoadReadingPrior` reads a
+**Rare-reading penalty table (local branch `weave-unfreeze`, weave-ime Phase 5 unfreeze Task 2; from `weave-reading-prior` and `weave-reading-prior2`, F12; default 1 since Task 4, was 0).**
+`SIME_WEAVE_READING_PRIOR` (`include/sime.h`, default 1: compiled in, and nothing changes until `LoadReadingPrior` gets a table): `Sime::LoadReadingPrior` reads a
 table of (character, reading, penalty), and a single-character pinyin edge on a listed pair pays that penalty
 in addition to its other penalties (`ApplyReadingPrior`, after `ComputeEdgePenalties` and before `PruneNode`); a line
 whose penalty is `drop` removes the edge (`weave-reading-prior2` only).
@@ -286,7 +289,7 @@ Modified files:
   this fork tracks no `dict/*` files.
 
 - `include/user.h`, `src/user.cc` (weave-ime Phase 5 F14, Docs/plans/phase-5-unfreeze.md Task 1):
-  `SIME_WEAVE_LEARNING`, default 0, adds a commit clock, lazily decayed per-entry counts, a bigram-only switch, a
+  `SIME_WEAVE_LEARNING`, default 1 since Phase 5 unfreeze Task 4 (was 0), adds a commit clock, lazily decayed per-entry counts, a bigram-only switch, a
   fixed bound on the adjustment, a counts-only file with strict loading, pruning, and a merge of what an engine
   taught. With the macro at 0, or at 1 with every knob at its default, the model is unchanged.
 

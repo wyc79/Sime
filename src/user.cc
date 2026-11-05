@@ -1,4 +1,4 @@
-// Modified by the weave-ime project (2026): SIME_WEAVE_LEARNING (default 0) adds a commit clock, lazily decayed per-entry counts, a bigram-only switch, a fixed bound on the adjustment, a counts-only file with strict loading, pruning and a merge of what an engine taught (Phase 5 F14, Docs/plans/phase-5-unfreeze.md).
+// Modified by the weave-ime project (2026): SIME_WEAVE_LEARNING (default 1 since Phase 5 unfreeze Task 4, was 0) adds a commit clock, lazily decayed per-entry counts, a bigram-only switch, a fixed bound on the adjustment, a counts-only file with strict loading, pruning and a merge of what an engine taught (Phase 5 F14, Docs/plans/phase-5-unfreeze.md).
 #include "user.h"
 
 #if SIME_WEAVE_LEARNING

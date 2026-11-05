@@ -1,4 +1,4 @@
-// Modified by the weave-ime project (2026): search constants EnglishPenalty, EnglishPenaltyShort, BeamSize, and the scoped-penalty constants are macro-backed (SIME_WEAVE_*); adds SIME_WEAVE_CASE_FOLD and the SIME_WEAVE_LITERAL_EDGE literal-letters edge (with SIME_WEAVE_LITERAL_PER_LETTER and SIME_WEAVE_LITERAL_NONPINYIN); adds SIME_WEAVE_SPACE_BOUNDARY and SIME_WEAVE_RAW_CNT; weave defaults PENALTY_RULE=1, EN_PENALTY_MIXED=0.0, EN_SHORT_EDGE_LEN=2, EN_PENALTY_SHORT=4.0 (Phase 4.5 Task 2; were 3 and 8.0), CASE_FOLD=1, RAW_CNT=1; adds Sime::TokenizeContext (additive, no macro); adds the SIME_WEAVE_OVERLAY lexicon overlay API (LoadOverlay, layer switches, display casing, dedup by key; default 1 since Phase 4.5 Task 8c, was 0); adds the candidate-contract provenance (DecodeResult::segments and ::basis, additive, no macro); adds SIME_WEAVE_INCREMENTAL incremental decoding (snapshots per prefix, runtime switch; default 1 since Phase 4.5 Task 8c, was 0); adds the SIME_WEAVE_SWAP_EDGE swapped-letter edges (default 0, compiled out); adds the SIME_WEAVE_READING_PRIOR rare-reading penalty table (default 0, compiled out) (see NOTICE.weave.md).
+// Modified by the weave-ime project (2026): search constants EnglishPenalty, EnglishPenaltyShort, BeamSize, and the scoped-penalty constants are macro-backed (SIME_WEAVE_*); adds SIME_WEAVE_CASE_FOLD and the SIME_WEAVE_LITERAL_EDGE literal-letters edge (with SIME_WEAVE_LITERAL_PER_LETTER and SIME_WEAVE_LITERAL_NONPINYIN); adds SIME_WEAVE_SPACE_BOUNDARY and SIME_WEAVE_RAW_CNT; weave defaults PENALTY_RULE=1, EN_PENALTY_MIXED=0.0, EN_SHORT_EDGE_LEN=2, EN_PENALTY_SHORT=4.0 (Phase 4.5 Task 2; were 3 and 8.0), CASE_FOLD=1, RAW_CNT=1; adds Sime::TokenizeContext (additive, no macro); adds the SIME_WEAVE_OVERLAY lexicon overlay API (LoadOverlay, layer switches, display casing, dedup by key; default 1 since Phase 4.5 Task 8c, was 0); adds the candidate-contract provenance (DecodeResult::segments and ::basis, additive, no macro); adds SIME_WEAVE_INCREMENTAL incremental decoding (snapshots per prefix, runtime switch; default 1 since Phase 4.5 Task 8c, was 0); adds the SIME_WEAVE_SWAP_EDGE swapped-letter edges (default 1 since Phase 5 unfreeze Task 4, was 0; no edge until SetSwapCost gets a cost); adds the SIME_WEAVE_READING_PRIOR rare-reading penalty table (default 1 since Task 4, was 0; nothing changes until LoadReadingPrior gets a table) (see NOTICE.weave.md).
 #pragma once
 
 #include "common.h"
@@ -110,16 +110,18 @@
 // also looks pinyin words up with two adjacent typed letters swapped (dina reaches dian). Each match is an extra edge
 // over the typed span, at a fixed cost, added after the exact edges are final, so it never replaces or filters one.
 // English lookups are not touched. Doubled letters (diaan) are not corrected. The cost and the shortest edge are
-// runtime (SetSwapCost), and off until set. Default 0, compiled out.
+// runtime (SetSwapCost), and off until set. Default 1 since weave-ime Phase 5 unfreeze Task 4 (was 0): compiled in, and
+// no edge is added until SetSwapCost gets a cost of 0 or more.
 #ifndef SIME_WEAVE_SWAP_EDGE
-#define SIME_WEAVE_SWAP_EDGE 0
+#define SIME_WEAVE_SWAP_EDGE 1
 #endif
 // SIME_WEAVE_READING_PRIOR=1 (experiment, local branch weave-reading-prior, weave-ime Phase 5 F12): with a table
 // from LoadReadingPrior, a single-character pinyin edge on a listed (character, reading) pays that penalty on top of
 // its other penalties. The n-gram model scores a token whatever its reading, so a rare reading of a common character
-// otherwise costs the same as the common one. Multi-character words are never touched. Default 0, compiled out.
+// otherwise costs the same as the common one. Multi-character words are never touched. Default 1 since weave-ime Phase 5 unfreeze Task 4 (was 0): compiled in, and
+// nothing changes until LoadReadingPrior gets a table.
 #ifndef SIME_WEAVE_READING_PRIOR
-#define SIME_WEAVE_READING_PRIOR 0
+#define SIME_WEAVE_READING_PRIOR 1
 #endif
 
 namespace sime {
