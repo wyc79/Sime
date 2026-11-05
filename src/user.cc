@@ -6,7 +6,7 @@
 #endif
 
 #include <algorithm>
-#include <cerrno>
+#include <charconv>
 #include <cmath>
 #include <cstdlib>
 #include <fstream>
@@ -500,6 +500,9 @@ void UserSentence::AgeToken(TokenID prev, TokenID token) {
         return;
     }
     ++delta_.bigram[BigramKey(prev, token)];
+    if (!aged_uni_.count(prev)) {  // pruned or loaded away while the paragraph kept it: a pair needs its word
+        Bump(aged_uni_[prev], clock_, learn_.half_life_uni, 1.0);
+    }
     Aged& bi = aged_bi_[BigramKey(prev, token)];
     const bool fresh = Effective(bi, clock_, learn_.half_life_bi) <= kBigramDiscount;
     Bump(bi, clock_, learn_.half_life_bi, 1.0);
@@ -591,6 +594,8 @@ namespace {
 
 constexpr const char* kCountsHeader = "SIME_USER_COUNTS_V1";
 constexpr float_t kPrefixFloor = 0.05;
+// A loaded clock above this is refused, so a merge can't wrap it.
+constexpr std::uint64_t kMaxClock = std::uint64_t{1} << 62U;
 
 std::vector<std::string> Fields(std::string_view line) {
     std::vector<std::string> out;
@@ -605,20 +610,35 @@ std::vector<std::string> Fields(std::string_view line) {
     }
 }
 
+// Parsing and formatting go through <charconv>: a decoder runs inside other applications, and the C locale or the
+// global C++ locale of one of them must not change what the shared file means.
 bool ParseU64(const std::string& s, std::uint64_t& out) {
-    if (s.empty() || s.find_first_not_of("0123456789") != std::string::npos) {
-        return false;
-    }
-    errno = 0;
-    out = std::strtoull(s.c_str(), nullptr, 10);
-    return errno == 0;
+    const char* end = s.data() + s.size();
+    const auto r = std::from_chars(s.data(), end, out);
+    return !s.empty() && r.ec == std::errc() && r.ptr == end;
 }
 
 bool ParseCount(const std::string& s, float_t& out) {
-    char* end = nullptr;
-    errno = 0;
-    out = std::strtod(s.c_str(), &end);
-    return !s.empty() && errno == 0 && *end == '\0' && std::isfinite(out) && out >= 0.0;
+    const char* end = s.data() + s.size();
+    const auto r = std::from_chars(s.data(), end, out);
+    return !s.empty() && r.ec == std::errc() && r.ptr == end && std::isfinite(out) && out >= 0.0;
+}
+
+template <class T>
+void AppendNumber(std::string& out, T value) {
+    char buf[64];
+    const auto r = std::to_chars(buf, buf + sizeof buf, value);  // shortest form that reads back exactly, for a double
+    out.append(buf, r.ptr);
+}
+
+void CountsRow(std::string& line, std::uint64_t key, std::uint32_t n, float_t count, std::uint64_t last) {
+    AppendNumber(line, key);
+    line.push_back(' ');
+    AppendNumber(line, n);
+    line.push_back(' ');
+    AppendNumber(line, count);
+    line.push_back(' ');
+    AppendNumber(line, last);
 }
 
 bool GoodToken(std::uint64_t id, const std::function<bool(TokenID)>& token_ok) {
@@ -640,36 +660,48 @@ bool UserSentence::SaveCounts(const std::filesystem::path& path, std::string_vie
     if (!out.is_open()) {
         return false;
     }
-    out.precision(17);
-    out << kCountsHeader << '\n' << kVocabPrefix << vocab_sig << '\n';
-    out << "CLOCK " << clock_ << '\n';
-    out << "TOTAL " << total_unigram_count_ << ' ' << aged_total_.count << ' ' << aged_total_.last << '\n';
+    std::string text = kCountsHeader;
+    text += '\n';
+    text += kVocabPrefix;
+    text += vocab_sig;
+    text += "\nCLOCK ";
+    AppendNumber(text, clock_);
+    text += "\nTOTAL ";
+    AppendNumber(text, total_unigram_count_);
+    text += ' ';
+    AppendNumber(text, aged_total_.count);
+    text += ' ';
+    AppendNumber(text, aged_total_.last);
+    text += '\n';
     std::vector<std::pair<std::uint64_t, std::string>> lines;
-    auto row = [](auto key, std::uint32_t n, const Aged& a) {
-        std::ostringstream s;
-        s.precision(17);
-        s << key << ' ' << n << ' ' << a.count << ' ' << a.last;
-        return s.str();
-    };
     auto count_of = [](const auto& map, auto key) -> std::uint32_t {
         auto it = map.find(key);
         return it == map.end() ? 0 : it->second;
     };
+    auto add = [&lines](const char* tag, std::uint64_t key, std::uint32_t n, const Aged& a) {
+        std::string line = tag;
+        CountsRow(line, key, n, a.count, a.last);
+        lines.emplace_back(key, std::move(line));
+    };
     // The aged maps hold every entry: an eviction lowers the integer counts only.
     for (const auto& [k, a] : aged_uni_) {
-        lines.emplace_back(k, "U " + row(k, count_of(unigram_, k), a));
+        add("U ", k, count_of(unigram_, k), a);
     }
     for (const auto& [k, a] : aged_succ_) {
-        lines.emplace_back(k, "S " + row(k, count_of(distinct_successors_, k), a));
+        add("S ", k, count_of(distinct_successors_, k), a);
     }
     for (const auto& [k, a] : aged_bi_) {
-        lines.emplace_back(k, "B " + row(k, count_of(bigram_, k), a));
+        add("B ", k, count_of(bigram_, k), a);
     }
     std::sort(lines.begin(), lines.end());
     for (const auto& l : lines) {
-        out << l.second << '\n';
+        text += l.second;
+        text += '\n';
     }
-    out << "END " << lines.size() << '\n';
+    text += "END ";
+    AppendNumber(text, lines.size());
+    text += '\n';
+    out.write(text.data(), static_cast<std::streamsize>(text.size()));
     out.close();
     return static_cast<bool>(out);
 }
@@ -701,7 +733,8 @@ bool UserSentence::LoadCounts(const std::filesystem::path& path, std::string_vie
     auto clock_row = Fields(lines[2]);
     auto total_row = Fields(lines[3]);
     auto end_row = Fields(lines.back());
-    if (clock_row.size() != 2 || clock_row[0] != "CLOCK" || !ParseU64(clock_row[1], clock) || total_row.size() != 4 ||
+    if (clock_row.size() != 2 || clock_row[0] != "CLOCK" || !ParseU64(clock_row[1], clock) || clock > kMaxClock ||
+        total_row.size() != 4 ||
         total_row[0] != "TOTAL" || !ParseU64(total_row[1], total) || total > std::numeric_limits<std::uint32_t>::max() ||
         !ParseCount(total_row[2], aged_total.count) || !ParseU64(total_row[3], aged_total.last) ||
         aged_total.last > clock || end_row.size() != 2 || end_row[0] != "END" || !ParseU64(end_row[1], rows) ||
@@ -815,9 +848,12 @@ std::size_t UserSentence::Prune(std::size_t max_pairs) {
 }
 
 void UserSentence::MergeCounts(const CountsDelta& delta) {
-    clock_ += delta.commits;
+    clock_ += std::min(delta.commits, kMaxClock - std::min(clock_, kMaxClock));
     std::uint64_t tokens = 0;
     for (const auto& [k, n] : delta.unigram) {
+        if (!GoodToken(k, {})) {
+            continue;  // LoadCounts would refuse the file
+        }
         IncCount(unigram_, k, n);
         total_unigram_count_ += n;
         tokens += n;
@@ -829,6 +865,10 @@ void UserSentence::MergeCounts(const CountsDelta& delta) {
     Bump(aged_total_, clock_, learn_.half_life_uni, static_cast<float_t>(tokens));
     for (const auto& [k, n] : delta.bigram) {
         const auto prev = static_cast<TokenID>(k >> 32U);
+        const auto cur = static_cast<TokenID>(k & 0xFFFFFFFFu);
+        if (!GoodToken(prev, {}) || !GoodToken(cur, {})) {
+            continue;
+        }
         Aged& bi = aged_bi_[k];
         const bool fresh = Effective(bi, clock_, learn_.half_life_bi) <= kBigramDiscount;
         Bump(bi, clock_, learn_.half_life_bi, static_cast<float_t>(n));
@@ -836,6 +876,14 @@ void UserSentence::MergeCounts(const CountsDelta& delta) {
             Bump(aged_succ_[prev], clock_, learn_.half_life_uni, 1.0);
         }
         IncBigramTrackSucc(bigram_, distinct_successors_, prev, k, n);
+        // A pair's words were taught, maybe in an earlier delta and since pruned from this file, or never in it
+        // (a delta cleared between two picks of one paragraph). The file needs their rows: at least the pair's count.
+        for (TokenID word : {prev, cur}) {
+            if (!aged_uni_.count(word)) {
+                Bump(aged_uni_[word], clock_, learn_.half_life_uni, static_cast<float_t>(n));
+                IncCount(unigram_, word, n);
+            }
+        }
     }
 }
 #endif  // SIME_WEAVE_LEARNING

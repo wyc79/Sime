@@ -161,7 +161,8 @@ public:
 
     // Commit-clock merge: the clock goes up by delta.commits, and each delta entry lands at the new clock, so
     // count = effective count + delta, last = new clock. Commit times inside one delta are lost: at 64 commits and
-    // H 2000 an entry reads about 2% high at most. Uses this store's knobs. Doesn't record a delta of its own.
+    // H 2000 an entry reads about 2% high at most. A word a pair needs and this store lacks gets the pair's count, so
+    // the result is always a file LoadCounts takes. Uses this store's knobs. Doesn't record a delta of its own.
     void MergeCounts(const CountsDelta& delta);
 #endif
 
