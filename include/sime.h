@@ -298,7 +298,8 @@ public:
         const std::vector<TokenID>& context,
         std::size_t extra = 0) const;
 #if SIME_WEAVE_READING_PRIOR
-    // Lines `character<TAB>reading<TAB>penalty` (UTF-8; penalty finite and >= 0, natural-log cost). Replaces any
+    // Lines `character<TAB>reading<TAB>penalty` (UTF-8; penalty finite and >= 0, natural-log cost, or the word
+    // `drop`, which removes the edge altogether). Replaces any
     // earlier table. Fails, leaving the table empty, on a malformed line or a pair the dictionary does not hold as a
     // single-character item.
     bool LoadReadingPrior(const std::filesystem::path& path, std::string* error = nullptr);

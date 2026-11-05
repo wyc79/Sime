@@ -32,12 +32,15 @@ edge in typed bytes, default 2). Doubled letters are not corrected.
 Exact edges are not changed or filtered. English lookups, `DecodeStr`, `GetTokens` and the T9 path are not touched.
 Touches `include/sime.h`, `src/sime.cc`.
 
-**Experiment, not a default (local branch `weave-reading-prior`, weave-ime Phase 5 F12).**
+**Rare-reading penalty table, default 0 until the unfreeze (local branch `weave-unfreeze`, weave-ime Phase 5 unfreeze Task 2; from `weave-reading-prior` and `weave-reading-prior2`, F12).**
 `SIME_WEAVE_READING_PRIOR` (`include/sime.h`, default 0, compiled out): `Sime::LoadReadingPrior` reads a
 table of (character, reading, penalty), and a single-character pinyin edge on a listed pair pays that penalty
-in addition to its other penalties (`ApplyReadingPrior`, after `ComputeEdgePenalties` and before `PruneNode`).
-Multi-character words are not touched. The table is an input, not part of this repository. Touches
-`include/sime.h`, `src/sime.cc`.
+in addition to its other penalties (`ApplyReadingPrior`, after `ComputeEdgePenalties` and before `PruneNode`); a line
+whose penalty is `drop` removes the edge (`weave-reading-prior2` only).
+Multi-character words are not touched. The table is an input, not part of Sime: weave-ime keeps its table at
+`benchmarks/results/phase5/polyphone/reading_r.tsv`. **That table derives from the Unihan database (Unicode 18.0.0,
+Unicode License) and from Luna Pinyin (rime-luna-pinyin, LGPL-3.0)**, and `LUNA_LICENSE.txt` stays beside it.
+Touches `include/sime.h`, `src/sime.cc`.
 
 **Dictionary.** `SIME_WEAVE_CASE_FOLD=1` looks every typed English span up
 by its lowercased spelling and, when the span has capitals, also as typed;
