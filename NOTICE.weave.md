@@ -40,6 +40,18 @@ beat the clean reading of a neighbouring input by more than the swap cost. Swap 
 Exact edges are not changed or filtered. English lookups, `DecodeStr`, `GetTokens` and the T9 path are not touched.
 Touches `include/sime.h`, `src/sime.cc`.
 
+**Front/back-nasal fuzzy pinyin (experiment, local branch `weave-fuzzy`, weave-ime Phase 5 WP4.3; default 0).**
+`SIME_WEAVE_FUZZY` (`include/sime.h`, default 0; needs `SIME_WEAVE_SWAP_EDGE`): `Sime::AppendFuzzyEdges`, after
+`AppendSwapEdges` at the end of `BuildSentenceNet`, adds extra pinyin edges for words reached with one nasal final read as
+its partner: typed an/en/in reaching stored ang/eng/ing, and typed ang/eng/ing reaching stored an/en/in where the stored
+syllable ends after the n. Each pair (`FuzzyPair::kAnAng`, `kEnEng`, `kInIng`) has its own runtime cost per flip
+(`SetFuzzyCost`; negative, the initial value, is off); `SetFuzzyLimits(min_span, max_flips)` (defaults 3 and 1). A fuzzy
+edge never swaps letters, abbreviates or completes, and a token already reached over the same span by an exact, overlay
+or swap edge gets none. It pays a reading-prior line on its reading (swap edges do not). It takes no learning adjustment,
+nor does the step after it (`State::kEdgeFuzzy`). Provenance: `Backtrace` restores the swap and fuzzy flags, and
+`Segment::correction` is 0 (as typed), 1 (swap) or 2 (fuzzy); the incremental self-check compares it. Exact edges are not
+changed or filtered; with every pair off the lattice is the one without the macro.
+
 **Rare-reading penalty table (local branch `weave-unfreeze`, weave-ime Phase 5 unfreeze Task 2; from `weave-reading-prior` and `weave-reading-prior2`, F12; default 1 since Task 4, was 0).**
 `SIME_WEAVE_READING_PRIOR` (`include/sime.h`, default 1: compiled in, and nothing changes until `LoadReadingPrior` gets a table): `Sime::LoadReadingPrior` reads a
 table of (character, reading, penalty), and a single-character pinyin edge on a listed pair pays that penalty
