@@ -1,4 +1,4 @@
-// Modified by the weave-ime project (2026): search constants EnglishPenalty, EnglishPenaltyShort, BeamSize, and the scoped-penalty constants are macro-backed (SIME_WEAVE_*); adds SIME_WEAVE_CASE_FOLD and the SIME_WEAVE_LITERAL_EDGE literal-letters edge (with SIME_WEAVE_LITERAL_PER_LETTER and SIME_WEAVE_LITERAL_NONPINYIN); adds SIME_WEAVE_SPACE_BOUNDARY and SIME_WEAVE_RAW_CNT; weave defaults PENALTY_RULE=1, EN_PENALTY_MIXED=0.0, EN_SHORT_EDGE_LEN=2, EN_PENALTY_SHORT=4.0 (Phase 4.5 Task 2; were 3 and 8.0), CASE_FOLD=1, RAW_CNT=1; adds Sime::TokenizeContext (additive, no macro); adds the SIME_WEAVE_OVERLAY lexicon overlay API (LoadOverlay, layer switches, display casing, dedup by key; default 1 since Phase 4.5 Task 8c, was 0); adds the candidate-contract provenance (DecodeResult::segments and ::basis, additive, no macro); adds SIME_WEAVE_INCREMENTAL incremental decoding (snapshots per prefix, runtime switch; default 1 since Phase 4.5 Task 8c, was 0); adds the SIME_WEAVE_SWAP_EDGE swapped-letter edges (default 1 since Phase 5 unfreeze Task 4, was 0; no edge until SetSwapCost gets a cost); adds the SIME_WEAVE_READING_PRIOR rare-reading penalty table (default 1 since Task 4, was 0; nothing changes until LoadReadingPrior gets a table); adds the SIME_WEAVE_RIGHT_CONTEXT Sime::TextCost (default 0, experiment, weave-ime Phase 5 owner feedback 7) (see NOTICE.weave.md); adds the SIME_WEAVE_FUZZY front/back-nasal fuzzy pinyin edges (experiment, default 0; Segment::correction under it).
+// Modified by the weave-ime project (2026): search constants EnglishPenalty, EnglishPenaltyShort, BeamSize, and the scoped-penalty constants are macro-backed (SIME_WEAVE_*); adds SIME_WEAVE_CASE_FOLD and the SIME_WEAVE_LITERAL_EDGE literal-letters edge (with SIME_WEAVE_LITERAL_PER_LETTER and SIME_WEAVE_LITERAL_NONPINYIN); adds SIME_WEAVE_SPACE_BOUNDARY and SIME_WEAVE_RAW_CNT; weave defaults PENALTY_RULE=1, EN_PENALTY_MIXED=0.0, EN_SHORT_EDGE_LEN=2, EN_PENALTY_SHORT=4.0 (Phase 4.5 Task 2; were 3 and 8.0), CASE_FOLD=1, RAW_CNT=1; adds Sime::TokenizeContext (additive, no macro); adds the SIME_WEAVE_OVERLAY lexicon overlay API (LoadOverlay, layer switches, display casing, dedup by key; default 1 since Phase 4.5 Task 8c, was 0); adds the candidate-contract provenance (DecodeResult::segments and ::basis, additive, no macro); adds SIME_WEAVE_INCREMENTAL incremental decoding (snapshots per prefix, runtime switch; default 1 since Phase 4.5 Task 8c, was 0); adds the SIME_WEAVE_SWAP_EDGE swapped-letter edges (default 1 since Phase 5 unfreeze Task 4, was 0; no edge until SetSwapCost gets a cost); adds the SIME_WEAVE_READING_PRIOR rare-reading penalty table (default 1 since Task 4, was 0; nothing changes until LoadReadingPrior gets a table); adds the SIME_WEAVE_RIGHT_CONTEXT Sime::TextCost (default 1 on weave-unfreeze2, was 0; experiment, weave-ime Phase 5 owner feedback 7) (see NOTICE.weave.md); adds the SIME_WEAVE_FUZZY front/back-nasal fuzzy pinyin edges (default 1 on weave-unfreeze2, was 0; Segment::correction under it).
 #pragma once
 
 #include "common.h"
@@ -125,9 +125,10 @@
 #endif
 // SIME_WEAVE_RIGHT_CONTEXT=1 (experiment, weave-ime Phase 5 owner feedback 7, insertion points): Sime::TextCost, the
 // language model's cost of a piece of text under TokenizeContext's Cutter, so a host can compare how well each
-// candidate runs into the text right of the caret. It changes no decoding: nothing calls it but the host. Default 0.
+// candidate runs into the text right of the caret. It changes no decoding: nothing calls it but the host. Default 1 on the
+// unfreeze-2 candidate branch weave-unfreeze2 (was 0).
 #ifndef SIME_WEAVE_RIGHT_CONTEXT
-#define SIME_WEAVE_RIGHT_CONTEXT 0
+#define SIME_WEAVE_RIGHT_CONTEXT 1
 #endif
 // SIME_WEAVE_FUZZY=1 (experiment, local branch weave-fuzzy, weave-ime Phase 5 WP4.3): front/back-nasal fuzzy pinyin.
 // The sentence decoder also looks pinyin words up with a syllable's final read as its nasal partner: typed an/en/in
@@ -135,9 +136,10 @@
 // stored syllable ends there). Each match is an extra edge over the typed span, priced per pair and per flip, added
 // after the exact and swap edges are final, so it never replaces or filters one; a fuzzy edge never also swaps letters
 // and never abbreviates. Every pair is off until SetFuzzyCost gives it a cost of 0 or more. A fuzzy edge carries its
-// kind to Segment::correction. Requires SIME_WEAVE_SWAP_EDGE (shares its work counts). Default 0.
+// kind to Segment::correction. Requires SIME_WEAVE_SWAP_EDGE (shares its work counts). Default 1 on the unfreeze-2
+// candidate branch weave-unfreeze2 (was 0): compiled in, and no edge is added until SetFuzzyCost gives a pair a cost.
 #ifndef SIME_WEAVE_FUZZY
-#define SIME_WEAVE_FUZZY 0
+#define SIME_WEAVE_FUZZY 1
 #endif
 #if SIME_WEAVE_FUZZY && !SIME_WEAVE_SWAP_EDGE
 #error "SIME_WEAVE_FUZZY needs SIME_WEAVE_SWAP_EDGE"

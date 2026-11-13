@@ -9,7 +9,7 @@ Per Apache-2.0 section 4, files modified in this fork carry a header line
 
 Each change below is a `SIME_WEAVE_*` macro guarded by `#ifndef`. Until
 weave-ime Phase 2 Task 8 every default reproduced upstream. Since then seven
-defaults differ from upstream, since Phase 4.5 Task 8c nine, and since Phase 5 unfreeze Task 4 twelve, so **a build with no `-D` defines
+defaults differ from upstream, since Phase 4.5 Task 8c nine, since Phase 5 unfreeze Task 4 twelve, and on the unfreeze-2 candidate branch `weave-unfreeze2` fourteen, so **a build with no `-D` defines
 no longer behaves like upstream Sime**:
 
 | macro | weave default | upstream value | effect of the weave default |
@@ -26,6 +26,8 @@ no longer behaves like upstream Sime**:
 | `SIME_WEAVE_LEARNING` (`include/user.h`; Phase 5 unfreeze Task 4) | 1 | 0 (no learning) | the learning store's knobs, strict file and merge are compiled in; with every knob at its default the model is unchanged |
 | `SIME_WEAVE_SWAP_EDGE` (`include/sime.h`; Phase 5 unfreeze Task 4) | 1 | 0 (no swap edges) | swapped-letter edges are compiled in; none are added until `SetSwapCost` gets a cost of 0 or more |
 | `SIME_WEAVE_READING_PRIOR` (`include/sime.h`; Phase 5 unfreeze Task 4) | 1 | 0 (no table) | the rare-reading table is compiled in; nothing changes until `LoadReadingPrior` gets a table |
+| `SIME_WEAVE_FUZZY` (`include/sime.h`; unfreeze-2 candidate, branch `weave-unfreeze2`) | 1 | 0 (no fuzzy edges) | front/back-nasal fuzzy edges are compiled in; none are added until `SetFuzzyCost` gives a pair a cost |
+| `SIME_WEAVE_RIGHT_CONTEXT` (`include/sime.h`; unfreeze-2 candidate, branch `weave-unfreeze2`) | 1 | 0 (no `TextCost`) | `Sime::TextCost` is compiled in; nothing calls it but the host |
 
 **Swapped-letter edges (local branch `weave-unfreeze`, weave-ime Phase 5 unfreeze Task 2; default 1 since Task 4, was 0).**
 `SIME_WEAVE_SWAP_EDGE` (`include/sime.h`, default 1: compiled in, and no edge is added until `SetSwapCost` gets a cost of 0 or more): `Sime::AppendSwapEdges`, at the end of
