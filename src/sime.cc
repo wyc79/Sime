@@ -1,4 +1,4 @@
-// Modified by the weave-ime project (2026): ComputeEdgePenalties gains the SIME_WEAVE_PENALTY_RULE scoped English penalty; English DAT lookups gain SIME_WEAVE_CASE_FOLD (folded and, for a span with capitals, as-typed lookups merged per folded key) and AbbreviatePieces matches letters ignoring case under it; InitNet gains the SIME_WEAVE_LITERAL_EDGE literal-letters edge (with SIME_WEAVE_LITERAL_PER_LETTER and SIME_WEAVE_LITERAL_NONPINYIN); NormalizeInput, InitNet and DecodeSentence gain SIME_WEAVE_SPACE_BOUNDARY and SIME_WEAVE_RAW_CNT; adds Sime::TokenizeContext (Cutter over the last N code points of committed text; additive, no macro); adds the SIME_WEAVE_OVERLAY lexicon overlay (overlay English edges at a bounded cost with a history break, display casing, dedup by key; default 1 since the Task 8c fork commit b605d07); adds the candidate-contract provenance (edge flags kept through State and Backtrace, DecodeResult::segments and ::basis from DecodeSentence; additive, no macro); DecodeSentence split into BuildSentenceNet / SentenceResults and Process into Relax, with segments filled only for emitted candidates (no output change); adds SIME_WEAVE_INCREMENTAL incremental decoding (snapshots per normalised prefix, Process resumed at the first changed column, generation counter, fallback; default 1 since Task 8c, runtime switch Sime::SetIncremental); adds the SIME_WEAVE_SWAP_EDGE swapped-letter edges (AppendSwapEdges at the end of BuildSentenceNet, sentence decoder only; default 1 since Task 4, was 0; a swap edge takes no learning adjustment); adds the SIME_WEAVE_READING_PRIOR rare-reading penalty table (LoadReadingPrior, ApplyReadingPrior after ComputeEdgePenalties in the sentence and word decoders, a `drop` line removes the edge; default 1 since Task 4, was 0).
+// Modified by the weave-ime project (2026): ComputeEdgePenalties gains the SIME_WEAVE_PENALTY_RULE scoped English penalty; English DAT lookups gain SIME_WEAVE_CASE_FOLD (folded and, for a span with capitals, as-typed lookups merged per folded key) and AbbreviatePieces matches letters ignoring case under it; InitNet gains the SIME_WEAVE_LITERAL_EDGE literal-letters edge (with SIME_WEAVE_LITERAL_PER_LETTER and SIME_WEAVE_LITERAL_NONPINYIN); NormalizeInput, InitNet and DecodeSentence gain SIME_WEAVE_SPACE_BOUNDARY and SIME_WEAVE_RAW_CNT; adds Sime::TokenizeContext (Cutter over the last N code points of committed text; additive, no macro); adds the SIME_WEAVE_OVERLAY lexicon overlay (overlay English edges at a bounded cost with a history break, display casing, dedup by key; default 1 since the Task 8c fork commit b605d07); adds the candidate-contract provenance (edge flags kept through State and Backtrace, DecodeResult::segments and ::basis from DecodeSentence; additive, no macro); DecodeSentence split into BuildSentenceNet / SentenceResults and Process into Relax, with segments filled only for emitted candidates (no output change); adds SIME_WEAVE_INCREMENTAL incremental decoding (snapshots per normalised prefix, Process resumed at the first changed column, generation counter, fallback; default 1 since Task 8c, runtime switch Sime::SetIncremental); adds the SIME_WEAVE_SWAP_EDGE swapped-letter edges (AppendSwapEdges at the end of BuildSentenceNet, sentence decoder only; default 1 since Task 4, was 0; a swap edge takes no learning adjustment); adds the SIME_WEAVE_READING_PRIOR rare-reading penalty table (LoadReadingPrior, ApplyReadingPrior after ComputeEdgePenalties in the sentence and word decoders, a `drop` line removes the edge; default 1 since Task 4, was 0); adds Sime::TextCost under SIME_WEAVE_RIGHT_CONTEXT (default 0).
 #include "sime.h"
 
 #include "cut.h"
@@ -2095,6 +2095,24 @@ std::vector<TokenID> Sime::TokenizeContext(std::string_view utf8,
     }
     return ids;
 }
+
+#if SIME_WEAVE_RIGHT_CONTEXT
+double Sime::TextCost(std::string_view utf8) const {
+    if (!ready_ || utf8.empty()) return 0.0;
+    std::call_once(cutter_once_, [this] {
+        cutter_ = std::make_unique<Cutter>(dict_, scorer_);
+    });
+    Scorer::Pos pos = scorer_.StartPos();
+    double total = 0.0;
+    for (const auto& ct : cutter_->Cut(utf8)) {
+        Scorer::Pos next{};
+        total += scorer_.ScoreMove(pos, ct.is_unk ? CutUnkToken : ct.id, next);
+        scorer_.Back(next);
+        pos = next;
+    }
+    return total;
+}
+#endif
 
 std::vector<DecodeResult> Sime::DecodeSentence(
     std::string_view input,

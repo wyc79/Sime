@@ -293,6 +293,11 @@ Modified files:
   fixed bound on the adjustment, a counts-only file with strict loading, pruning, and a merge of what an engine
   taught. With the macro at 0, or at 1 with every knob at its default, the model is unchanged.
 
+- `include/sime.h`, `src/sime.cc` (weave-ime Phase 5 owner feedback 7, insertion points): `SIME_WEAVE_RIGHT_CONTEXT`,
+  default 0 (experiment; upstream has no such code), adds `Sime::TextCost`: the language model's cost of a piece of text
+  under TokenizeContext's Cutter, scored from the start state (ScoreMove then Back per token, an unknown character at the
+  back-off cost). It changes no decoding; a host may compare how well each candidate runs into the text right of the caret.
+
 Added files:
 
 - `NOTICE.weave.md`: this file.

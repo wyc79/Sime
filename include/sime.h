@@ -1,4 +1,4 @@
-// Modified by the weave-ime project (2026): search constants EnglishPenalty, EnglishPenaltyShort, BeamSize, and the scoped-penalty constants are macro-backed (SIME_WEAVE_*); adds SIME_WEAVE_CASE_FOLD and the SIME_WEAVE_LITERAL_EDGE literal-letters edge (with SIME_WEAVE_LITERAL_PER_LETTER and SIME_WEAVE_LITERAL_NONPINYIN); adds SIME_WEAVE_SPACE_BOUNDARY and SIME_WEAVE_RAW_CNT; weave defaults PENALTY_RULE=1, EN_PENALTY_MIXED=0.0, EN_SHORT_EDGE_LEN=2, EN_PENALTY_SHORT=4.0 (Phase 4.5 Task 2; were 3 and 8.0), CASE_FOLD=1, RAW_CNT=1; adds Sime::TokenizeContext (additive, no macro); adds the SIME_WEAVE_OVERLAY lexicon overlay API (LoadOverlay, layer switches, display casing, dedup by key; default 1 since Phase 4.5 Task 8c, was 0); adds the candidate-contract provenance (DecodeResult::segments and ::basis, additive, no macro); adds SIME_WEAVE_INCREMENTAL incremental decoding (snapshots per prefix, runtime switch; default 1 since Phase 4.5 Task 8c, was 0); adds the SIME_WEAVE_SWAP_EDGE swapped-letter edges (default 1 since Phase 5 unfreeze Task 4, was 0; no edge until SetSwapCost gets a cost); adds the SIME_WEAVE_READING_PRIOR rare-reading penalty table (default 1 since Task 4, was 0; nothing changes until LoadReadingPrior gets a table) (see NOTICE.weave.md).
+// Modified by the weave-ime project (2026): search constants EnglishPenalty, EnglishPenaltyShort, BeamSize, and the scoped-penalty constants are macro-backed (SIME_WEAVE_*); adds SIME_WEAVE_CASE_FOLD and the SIME_WEAVE_LITERAL_EDGE literal-letters edge (with SIME_WEAVE_LITERAL_PER_LETTER and SIME_WEAVE_LITERAL_NONPINYIN); adds SIME_WEAVE_SPACE_BOUNDARY and SIME_WEAVE_RAW_CNT; weave defaults PENALTY_RULE=1, EN_PENALTY_MIXED=0.0, EN_SHORT_EDGE_LEN=2, EN_PENALTY_SHORT=4.0 (Phase 4.5 Task 2; were 3 and 8.0), CASE_FOLD=1, RAW_CNT=1; adds Sime::TokenizeContext (additive, no macro); adds the SIME_WEAVE_OVERLAY lexicon overlay API (LoadOverlay, layer switches, display casing, dedup by key; default 1 since Phase 4.5 Task 8c, was 0); adds the candidate-contract provenance (DecodeResult::segments and ::basis, additive, no macro); adds SIME_WEAVE_INCREMENTAL incremental decoding (snapshots per prefix, runtime switch; default 1 since Phase 4.5 Task 8c, was 0); adds the SIME_WEAVE_SWAP_EDGE swapped-letter edges (default 1 since Phase 5 unfreeze Task 4, was 0; no edge until SetSwapCost gets a cost); adds the SIME_WEAVE_READING_PRIOR rare-reading penalty table (default 1 since Task 4, was 0; nothing changes until LoadReadingPrior gets a table); adds the SIME_WEAVE_RIGHT_CONTEXT Sime::TextCost (default 0, experiment, weave-ime Phase 5 owner feedback 7) (see NOTICE.weave.md).
 #pragma once
 
 #include "common.h"
@@ -122,6 +122,12 @@
 // nothing changes until LoadReadingPrior gets a table.
 #ifndef SIME_WEAVE_READING_PRIOR
 #define SIME_WEAVE_READING_PRIOR 1
+#endif
+// SIME_WEAVE_RIGHT_CONTEXT=1 (experiment, weave-ime Phase 5 owner feedback 7, insertion points): Sime::TextCost, the
+// language model's cost of a piece of text under TokenizeContext's Cutter, so a host can compare how well each
+// candidate runs into the text right of the caret. It changes no decoding: nothing calls it but the host. Default 0.
+#ifndef SIME_WEAVE_RIGHT_CONTEXT
+#define SIME_WEAVE_RIGHT_CONTEXT 0
 #endif
 
 namespace sime {
@@ -261,6 +267,13 @@ public:
     // dictionary token is NotToken. Empty text or window gives an empty vector.
     std::vector<TokenID> TokenizeContext(std::string_view utf8,
                                          std::size_t max_code_points) const;
+#if SIME_WEAVE_RIGHT_CONTEXT
+    // weave-ime (SIME_WEAVE_RIGHT_CONTEXT): the LM cost of `utf8`: the Cutter's cut (TokenizeContext's), scored from the
+    // start state, ScoreMove then Back per token; a character with no dictionary token costs the unknown back-off.
+    // 0 for empty text or an engine that isn't ready. A host compares TextCost(tail + right) - TextCost(tail) across
+    // candidates (weave-ime benchmarks/results/phase5/insertion_context/).
+    double TextCost(std::string_view utf8) const;
+#endif
     // Prediction: given confirmed token IDs as context, suggest next words.
     // When `en` is true, only English tokens are returned (for the English
     // IME's prediction slot); Chinese tokens are filtered out.
