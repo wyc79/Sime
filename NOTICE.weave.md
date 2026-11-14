@@ -9,7 +9,7 @@ Per Apache-2.0 section 4, files modified in this fork carry a header line
 
 Each change below is a `SIME_WEAVE_*` macro guarded by `#ifndef`. Until
 weave-ime Phase 2 Task 8 every default reproduced upstream. Since then seven
-defaults differ from upstream, since Phase 4.5 Task 8c nine, since Phase 5 unfreeze Task 4 twelve, and on the unfreeze-2 candidate branch `weave-unfreeze2` fourteen, so **a build with no `-D` defines
+defaults differ from upstream, since Phase 4.5 Task 8c nine, since Phase 5 unfreeze Task 4 twelve, and since Phase 5 unfreeze 2 (2026-11-13) fourteen, so **a build with no `-D` defines
 no longer behaves like upstream Sime**:
 
 | macro | weave default | upstream value | effect of the weave default |
@@ -26,8 +26,8 @@ no longer behaves like upstream Sime**:
 | `SIME_WEAVE_LEARNING` (`include/user.h`; Phase 5 unfreeze Task 4) | 1 | 0 (no learning) | the learning store's knobs, strict file and merge are compiled in; with every knob at its default the model is unchanged |
 | `SIME_WEAVE_SWAP_EDGE` (`include/sime.h`; Phase 5 unfreeze Task 4) | 1 | 0 (no swap edges) | swapped-letter edges are compiled in; none are added until `SetSwapCost` gets a cost of 0 or more |
 | `SIME_WEAVE_READING_PRIOR` (`include/sime.h`; Phase 5 unfreeze Task 4) | 1 | 0 (no table) | the rare-reading table is compiled in; nothing changes until `LoadReadingPrior` gets a table |
-| `SIME_WEAVE_FUZZY` (`include/sime.h`; unfreeze-2 candidate, branch `weave-unfreeze2`) | 1 | 0 (no fuzzy edges) | front/back-nasal fuzzy edges are compiled in; none are added until `SetFuzzyCost` gives a pair a cost |
-| `SIME_WEAVE_RIGHT_CONTEXT` (`include/sime.h`; unfreeze-2 candidate, branch `weave-unfreeze2`) | 1 | 0 (no `TextCost`) | `Sime::TextCost` is compiled in; nothing calls it but the host |
+| `SIME_WEAVE_FUZZY` (`include/sime.h`; Phase 5 unfreeze 2) | 1 | 0 (no fuzzy edges) | front/back-nasal fuzzy edges are compiled in; none are added until `SetFuzzyCost` gives a pair a cost |
+| `SIME_WEAVE_RIGHT_CONTEXT` (`include/sime.h`; Phase 5 unfreeze 2) | 1 | 0 (no `TextCost`) | `Sime::TextCost` is compiled in; nothing calls it but the host |
 
 **Swapped-letter edges (local branch `weave-unfreeze`, weave-ime Phase 5 unfreeze Task 2; default 1 since Task 4, was 0).**
 `SIME_WEAVE_SWAP_EDGE` (`include/sime.h`, default 1: compiled in, and no edge is added until `SetSwapCost` gets a cost of 0 or more): `Sime::AppendSwapEdges`, at the end of
@@ -42,8 +42,8 @@ beat the clean reading of a neighbouring input by more than the swap cost. Swap 
 Exact edges are not changed or filtered. English lookups, `DecodeStr`, `GetTokens` and the T9 path are not touched.
 Touches `include/sime.h`, `src/sime.cc`.
 
-**Front/back-nasal fuzzy pinyin (experiment, local branch `weave-fuzzy`, weave-ime Phase 5 WP4.3; default 0).**
-`SIME_WEAVE_FUZZY` (`include/sime.h`, default 0; needs `SIME_WEAVE_SWAP_EDGE`): `Sime::AppendFuzzyEdges`, after
+**Front/back-nasal fuzzy pinyin (local branch `weave-fuzzy`, weave-ime Phase 5 WP4.3; default 1 since Phase 5 unfreeze 2, was 0).**
+`SIME_WEAVE_FUZZY` (`include/sime.h`, default 1: compiled in, and no edge is added until `SetFuzzyCost` gives a pair a cost; needs `SIME_WEAVE_SWAP_EDGE`): `Sime::AppendFuzzyEdges`, after
 `AppendSwapEdges` at the end of `BuildSentenceNet`, adds extra pinyin edges for words reached with one nasal final read as
 its partner: typed an/en/in reaching stored ang/eng/ing, and typed ang/eng/ing reaching stored an/en/in where the stored
 syllable ends after the n. Each pair (`FuzzyPair::kAnAng`, `kEnEng`, `kInIng`) has its own runtime cost per flip
@@ -308,7 +308,7 @@ Modified files:
   taught. With the macro at 0, or at 1 with every knob at its default, the model is unchanged.
 
 - `include/sime.h`, `src/sime.cc` (weave-ime Phase 5 owner feedback 7, insertion points): `SIME_WEAVE_RIGHT_CONTEXT`,
-  default 0 (experiment; upstream has no such code), adds `Sime::TextCost`: the language model's cost of a piece of text
+  default 1 since Phase 5 unfreeze 2, was 0 (upstream has no such code), adds `Sime::TextCost`: the language model's cost of a piece of text
   under TokenizeContext's Cutter, scored from the start state (ScoreMove then Back per token, an unknown character at the
   back-off cost). It changes no decoding; a host may compare how well each candidate runs into the text right of the caret.
 
