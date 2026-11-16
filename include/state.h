@@ -1,4 +1,4 @@
-// Modified by the weave-ime project (2026): adds SIME_WEAVE_BEAM_EXACT (exact column eviction), SIME_WEAVE_COLUMN_BEAM_SIZE (column state cap, default 48) and the SIME_WEAVE_BEAM_CHECK invariant check; weave default BEAM_EXACT=1; State keeps the edge's flags (backtrace_flags, additive, no macro) (see NOTICE.weave.md); adds State::kEdgeFuzzy (SIME_WEAVE_FUZZY); adds State::kEdgeDup (SIME_WEAVE_DUP_EDGE, experiment) and State::kEdgeUeAlias (SIME_WEAVE_UE_ALIAS, experiment).
+// Modified by the weave-ime project (2026): adds SIME_WEAVE_BEAM_EXACT (exact column eviction), SIME_WEAVE_COLUMN_BEAM_SIZE (column state cap, default 48) and the SIME_WEAVE_BEAM_CHECK invariant check; weave default BEAM_EXACT=1; State keeps the edge's flags (backtrace_flags, additive, no macro) (see NOTICE.weave.md); adds State::kEdgeFuzzy (SIME_WEAVE_FUZZY); adds State::kEdgeDup (SIME_WEAVE_DUP_EDGE) and State::kEdgeUeAlias (SIME_WEAVE_UE_ALIAS).
 #pragma once
 
 #include "common.h"

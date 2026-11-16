@@ -9,7 +9,7 @@ Per Apache-2.0 section 4, files modified in this fork carry a header line
 
 Each change below is a `SIME_WEAVE_*` macro guarded by `#ifndef`. Until
 weave-ime Phase 2 Task 8 every default reproduced upstream. Since then seven
-defaults differ from upstream, since Phase 4.5 Task 8c nine, since Phase 5 unfreeze Task 4 twelve, and since Phase 5 unfreeze 2 (2026-11-13) fourteen, so **a build with no `-D` defines
+defaults differ from upstream, since Phase 4.5 Task 8c nine, since Phase 5 unfreeze Task 4 twelve, since Phase 5 unfreeze 2 (2026-11-13) fourteen, and on the p5u3 candidate (local weave, 2026-11-15) sixteen, so **a build with no `-D` defines
 no longer behaves like upstream Sime**:
 
 | macro | weave default | upstream value | effect of the weave default |
@@ -28,6 +28,8 @@ no longer behaves like upstream Sime**:
 | `SIME_WEAVE_READING_PRIOR` (`include/sime.h`; Phase 5 unfreeze Task 4) | 1 | 0 (no table) | the rare-reading table is compiled in; nothing changes until `LoadReadingPrior` gets a table |
 | `SIME_WEAVE_FUZZY` (`include/sime.h`; Phase 5 unfreeze 2) | 1 | 0 (no fuzzy edges) | front/back-nasal fuzzy edges are compiled in; none are added until `SetFuzzyCost` gives a pair a cost |
 | `SIME_WEAVE_RIGHT_CONTEXT` (`include/sime.h`; Phase 5 unfreeze 2) | 1 | 0 (no `TextCost`) | `Sime::TextCost` is compiled in; nothing calls it but the host |
+| `SIME_WEAVE_DUP_EDGE` (`include/sime.h`; p5u3 candidate) | 1 | 0 (no doubled-letter edges) | doubled-letter edges are compiled in; none are added until `SetDupCost` gets a cost of 0 or more |
+| `SIME_WEAVE_UE_ALIAS` (`include/sime.h`; p5u3 candidate) | 1 | 0 (no lue/nue alias) | lue/nue alias edges are compiled in; none are added until `SetUeAliasCost` gets a cost of 0 or more |
 
 **Swapped-letter edges (local branch `weave-unfreeze`, weave-ime Phase 5 unfreeze Task 2; default 1 since Task 4, was 0).**
 `SIME_WEAVE_SWAP_EDGE` (`include/sime.h`, default 1: compiled in, and no edge is added until `SetSwapCost` gets a cost of 0 or more): `Sime::AppendSwapEdges`, at the end of
@@ -54,8 +56,8 @@ nor does the step after it (`State::kEdgeFuzzy`). Provenance: `Backtrace` restor
 `Segment::correction` is 0 (as typed), 1 (swap) or 2 (fuzzy); the incremental self-check compares it. Exact edges are not
 changed or filtered; with every pair off the lattice is the one without the macro.
 
-**Doubled-letter edges (experiment, local branch `weave-dup`, weave-ime Phase 5 owner feedback of 2026-11-15; default 0).**
-`SIME_WEAVE_DUP_EDGE` (`include/sime.h`, default 0: compiled out; needs `SIME_WEAVE_FUZZY`): `Sime::AppendDupEdges`,
+**Doubled-letter edges (local branch `weave-dup`, weave-ime Phase 5 owner feedback of 2026-11-15; default 1 on the p5u3 candidate, was 0).**
+`SIME_WEAVE_DUP_EDGE` (`include/sime.h`, default 1: compiled in, and no edge is added until `SetDupCost` gets a cost; needs `SIME_WEAVE_FUZZY`): `Sime::AppendDupEdges`,
 after `AppendFuzzyEdges` at the end of `BuildSentenceNet`, adds extra pinyin edges for words reached with one copy of
 two equal adjacent typed letters skipped (`wooxiangchifan` reaching `woxiang`). The edge covers the typed span with both
 copies, at the runtime cost of `SetDupCost(cost, min_span)` (negative, the initial value, is off; `min_span` the shortest
@@ -64,8 +66,8 @@ letters, flips a nasal, abbreviates or completes, and a token already reached ov
 English lookups are not touched. It takes no learning adjustment, nor does the step after it (`State::kEdgeDup`).
 Provenance: `Backtrace` restores the flag and `Segment::correction` is 3; the incremental self-check compares it.
 
-**lue/nue alias edges (experiment, local branch `weave-dup`, weave-ime Phase 5 owner feedback of 2026-11-15; default 0).**
-`SIME_WEAVE_UE_ALIAS` (`include/sime.h`, default 0: compiled out; needs `SIME_WEAVE_FUZZY`): `Sime::AppendUeAliasEdges`,
+**lue/nue alias edges (local branch `weave-dup`, weave-ime Phase 5 owner feedback of 2026-11-15; default 1 on the p5u3 candidate, was 0).**
+`SIME_WEAVE_UE_ALIAS` (`include/sime.h`, default 1: compiled in, and no edge is added until `SetUeAliasCost` gets a cost; needs `SIME_WEAVE_FUZZY`): `Sime::AppendUeAliasEdges`,
 after the overlay edges and before `AppendSwapEdges` in `BuildSentenceNet`, adds extra pinyin edges for words reached
 with a typed `u` read as the stored `v` where a typed `l` or `n` starts the syllable and `e` follows (`lue` reaching
 `lve`, `nue` reaching `nve`; `lu` alone never reads `lv`). Cost per alias from `SetUeAliasCost` (negative, the initial
