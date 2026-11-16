@@ -1,4 +1,4 @@
-// Modified by the weave-ime project (2026): adds SIME_WEAVE_BEAM_EXACT (exact column eviction), SIME_WEAVE_COLUMN_BEAM_SIZE (column state cap, default 48) and the SIME_WEAVE_BEAM_CHECK invariant check; weave default BEAM_EXACT=1; State keeps the edge's flags (backtrace_flags, additive, no macro) (see NOTICE.weave.md); adds State::kEdgeFuzzy (SIME_WEAVE_FUZZY); adds State::kEdgeDup (SIME_WEAVE_DUP_EDGE, experiment).
+// Modified by the weave-ime project (2026): adds SIME_WEAVE_BEAM_EXACT (exact column eviction), SIME_WEAVE_COLUMN_BEAM_SIZE (column state cap, default 48) and the SIME_WEAVE_BEAM_CHECK invariant check; weave default BEAM_EXACT=1; State keeps the edge's flags (backtrace_flags, additive, no macro) (see NOTICE.weave.md); adds State::kEdgeFuzzy (SIME_WEAVE_FUZZY); adds State::kEdgeDup (SIME_WEAVE_DUP_EDGE, experiment) and State::kEdgeUeAlias (SIME_WEAVE_UE_ALIAS, experiment).
 #pragma once
 
 #include "common.h"
@@ -56,6 +56,7 @@ struct State {
     static constexpr std::uint8_t kEdgeSwap = 4;  // SIME_WEAVE_SWAP_EDGE: an edge that reads swapped letters
     static constexpr std::uint8_t kEdgeFuzzy = 8;  // SIME_WEAVE_FUZZY: an edge that reads a nasal final as its partner
     static constexpr std::uint8_t kEdgeDup = 16;   // SIME_WEAVE_DUP_EDGE: an edge that reads a doubled letter once
+    static constexpr std::uint8_t kEdgeUeAlias = 32;  // SIME_WEAVE_UE_ALIAS: an edge that reads typed lue/nue as lve/nve
 
     State() = default;
 

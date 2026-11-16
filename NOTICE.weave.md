@@ -64,6 +64,15 @@ letters, flips a nasal, abbreviates or completes, and a token already reached ov
 English lookups are not touched. It takes no learning adjustment, nor does the step after it (`State::kEdgeDup`).
 Provenance: `Backtrace` restores the flag and `Segment::correction` is 3; the incremental self-check compares it.
 
+**lue/nue alias edges (experiment, local branch `weave-dup`, weave-ime Phase 5 owner feedback of 2026-11-15; default 0).**
+`SIME_WEAVE_UE_ALIAS` (`include/sime.h`, default 0: compiled out; needs `SIME_WEAVE_FUZZY`): `Sime::AppendUeAliasEdges`,
+after the overlay edges and before `AppendSwapEdges` in `BuildSentenceNet`, adds extra pinyin edges for words reached
+with a typed `u` read as the stored `v` where a typed `l` or `n` starts the syllable and `e` follows (`lue` reaching
+`lve`, `nue` reaching `nve`; `lu` alone never reads `lv`). Cost per alias from `SetUeAliasCost` (negative, the initial
+value, is off) plus a reading-prior line. Exact edges are not changed or filtered (`lu|e` stays), and a token already
+reached over the same span by an exact or overlay edge gets none. It learns like an exact edge. Provenance: `Backtrace`
+restores `State::kEdgeUeAlias` and `Segment::correction` is 4; the incremental self-check compares it.
+
 **Rare-reading penalty table (local branch `weave-unfreeze`, weave-ime Phase 5 unfreeze Task 2; from `weave-reading-prior` and `weave-reading-prior2`, F12; default 1 since Task 4, was 0).**
 `SIME_WEAVE_READING_PRIOR` (`include/sime.h`, default 1: compiled in, and nothing changes until `LoadReadingPrior` gets a table): `Sime::LoadReadingPrior` reads a
 table of (character, reading, penalty), and a single-character pinyin edge on a listed pair pays that penalty
