@@ -2725,13 +2725,14 @@ void Sime::SetEnTypoCost(EnTypoKind kind, float_t cost) {
     en_typo_cost_[static_cast<std::size_t>(kind)] = cost < 0 ? -1 : cost;
 }
 
-void Sime::SetEnTypoLimits(std::size_t min_len, bool gate) {
+void Sime::SetEnTypoLimits(std::size_t min_len, bool gate, bool extra_at_end) {
     std::lock_guard<std::mutex> lock(decode_mutex_);
 #if SIME_WEAVE_INCREMENTAL
     BumpGeneration();
 #endif
     en_typo_min_len_ = min_len;
     en_typo_gate_ = gate;
+    en_typo_extra_at_end_ = extra_at_end;
 }
 
 // For each column and each English DAT (L0 LetterEn over FoldEnKey, and the overlay's over FoldAsciiLower when it has
@@ -2819,8 +2820,8 @@ void Sime::AppendEnTypoEdges(std::vector<Node>& net, std::string_view input) con
                 }
             };
             // Follow the typed letters from q (stored length len so far), recording each end; the edit is behind.
-            auto follow = [&](St st, std::size_t q, std::size_t len, float_t cost) {
-                record(st, len, q, cost);
+            auto follow = [&](St st, std::size_t q, std::size_t len, float_t cost, bool record_first = true) {
+                if (record_first) record(st, len, q, cost);
                 for (; q < f.size() && letter(f[q]) && st.valid; ++q) {
                     adv(st, f[q]);
                     ++len;
@@ -2846,7 +2847,7 @@ void Sime::AppendEnTypoEdges(std::vector<Node>& net, std::string_view input) con
                         adv(st, x);
                         if (st.valid) follow(st, p + 1, len + 1, c_sub);
                     }
-                if (c_extra >= 0 && p > s) follow(exact, p + 1, len, c_extra);
+                if (c_extra >= 0 && p > s) follow(exact, p + 1, len, c_extra, en_typo_extra_at_end_);
                 if (c_trans >= 0 && p + 1 < f.size() && letter(f[p + 1]) && f[p] != f[p + 1]) {
                     St st = exact;
                     adv(st, f[p + 1]);

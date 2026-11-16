@@ -479,9 +479,10 @@ public:
 #if SIME_WEAVE_EN_TYPO
     // Edge cost of one English slip of the given kind; a negative cost (the default for every kind) switches that kind
     // off. The corrected word has at least min_len letters; with `gate`, a typed span that is already an English word is
-    // never corrected.
+    // never corrected; without `extra_at_end`, an extra key is never the edge's last letter (so a word-final stray, or
+    // the English word "i" typed after a word, is never absorbed into the word before it).
     void SetEnTypoCost(EnTypoKind kind, float_t cost);
-    void SetEnTypoLimits(std::size_t min_len, bool gate);
+    void SetEnTypoLimits(std::size_t min_len, bool gate, bool extra_at_end = true);
 #endif
 #if SIME_WEAVE_READING_PRIOR
     // Lines `character<TAB>reading<TAB>penalty` (UTF-8; penalty a plain decimal number in [0, 1000], natural-log
@@ -782,6 +783,7 @@ private:
     float_t en_typo_cost_[kEnTypoKinds] = {-1, -1, -1, -1};
     std::size_t en_typo_min_len_ = 4;
     bool en_typo_gate_ = true;
+    bool en_typo_extra_at_end_ = true;
 #endif
 #if SIME_WEAVE_READING_PRIOR
     // token -> (reading, penalty); only single-character tokens with a listed reading.
