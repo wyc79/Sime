@@ -1,4 +1,4 @@
-// Modified by the weave-ime project (2026): search constants EnglishPenalty, EnglishPenaltyShort, BeamSize, and the scoped-penalty constants are macro-backed (SIME_WEAVE_*); adds SIME_WEAVE_CASE_FOLD and the SIME_WEAVE_LITERAL_EDGE literal-letters edge (with SIME_WEAVE_LITERAL_PER_LETTER and SIME_WEAVE_LITERAL_NONPINYIN); adds SIME_WEAVE_SPACE_BOUNDARY and SIME_WEAVE_RAW_CNT; weave defaults PENALTY_RULE=1, EN_PENALTY_MIXED=0.0, EN_SHORT_EDGE_LEN=2, EN_PENALTY_SHORT=4.0 (Phase 4.5 Task 2; were 3 and 8.0), CASE_FOLD=1, RAW_CNT=1; adds Sime::TokenizeContext (additive, no macro); adds the SIME_WEAVE_OVERLAY lexicon overlay API (LoadOverlay, layer switches, display casing, dedup by key; default 1 since Phase 4.5 Task 8c, was 0); adds the candidate-contract provenance (DecodeResult::segments and ::basis, additive, no macro); adds SIME_WEAVE_INCREMENTAL incremental decoding (snapshots per prefix, runtime switch; default 1 since Phase 4.5 Task 8c, was 0); adds the SIME_WEAVE_SWAP_EDGE swapped-letter edges (default 1 since Phase 5 unfreeze Task 4, was 0; no edge until SetSwapCost gets a cost); adds the SIME_WEAVE_READING_PRIOR rare-reading penalty table (default 1 since Task 4, was 0; nothing changes until LoadReadingPrior gets a table); adds the SIME_WEAVE_RIGHT_CONTEXT Sime::TextCost (default 1 since weave-ime Phase 5 unfreeze 2, was 0; owner feedback 7); adds the SIME_WEAVE_FUZZY front/back-nasal fuzzy pinyin edges (default 1 since unfreeze 2, was 0; no edge until SetFuzzyCost gets a cost; Segment::correction under it) (see NOTICE.weave.md).
+// Modified by the weave-ime project (2026): search constants EnglishPenalty, EnglishPenaltyShort, BeamSize, and the scoped-penalty constants are macro-backed (SIME_WEAVE_*); adds SIME_WEAVE_CASE_FOLD and the SIME_WEAVE_LITERAL_EDGE literal-letters edge (with SIME_WEAVE_LITERAL_PER_LETTER and SIME_WEAVE_LITERAL_NONPINYIN); adds SIME_WEAVE_SPACE_BOUNDARY and SIME_WEAVE_RAW_CNT; weave defaults PENALTY_RULE=1, EN_PENALTY_MIXED=0.0, EN_SHORT_EDGE_LEN=2, EN_PENALTY_SHORT=4.0 (Phase 4.5 Task 2; were 3 and 8.0), CASE_FOLD=1, RAW_CNT=1; adds Sime::TokenizeContext (additive, no macro); adds the SIME_WEAVE_OVERLAY lexicon overlay API (LoadOverlay, layer switches, display casing, dedup by key; default 1 since Phase 4.5 Task 8c, was 0); adds the candidate-contract provenance (DecodeResult::segments and ::basis, additive, no macro); adds SIME_WEAVE_INCREMENTAL incremental decoding (snapshots per prefix, runtime switch; default 1 since Phase 4.5 Task 8c, was 0); adds the SIME_WEAVE_SWAP_EDGE swapped-letter edges (default 1 since Phase 5 unfreeze Task 4, was 0; no edge until SetSwapCost gets a cost); adds the SIME_WEAVE_READING_PRIOR rare-reading penalty table (default 1 since Task 4, was 0; nothing changes until LoadReadingPrior gets a table); adds the SIME_WEAVE_RIGHT_CONTEXT Sime::TextCost (default 1 since weave-ime Phase 5 unfreeze 2, was 0; owner feedback 7); adds the SIME_WEAVE_FUZZY front/back-nasal fuzzy pinyin edges (default 1 since unfreeze 2, was 0; no edge until SetFuzzyCost gets a cost; Segment::correction under it); adds the SIME_WEAVE_DUP_EDGE doubled-letter edges (experiment, local branch weave-dup, default 0; no edge until SetDupCost gets a cost; Segment::correction 3) (see NOTICE.weave.md).
 #pragma once
 
 #include "common.h"
@@ -144,6 +144,20 @@
 #if SIME_WEAVE_FUZZY && !SIME_WEAVE_SWAP_EDGE
 #error "SIME_WEAVE_FUZZY needs SIME_WEAVE_SWAP_EDGE"
 #endif
+// SIME_WEAVE_DUP_EDGE=1 (experiment, local branch weave-dup, weave-ime Phase 5 owner feedback of 2026-11-15): doubled
+// letters. The sentence decoder also looks pinyin words up with one copy of two equal adjacent typed letters skipped
+// (wooxiangchifan reaches woxiang, 我想). Each match is an extra edge over the typed span, both copies included, at a
+// runtime cost (SetDupCost) plus the word's reading-table line, added after the exact, overlay, swap and fuzzy edges are
+// final, so it never replaces or filters one. At most one skip per edge; never chained with a swap, a fuzzy flip, an
+// abbreviation or a completion; English lookups are not touched. No learning adjustment into or out of it. It carries
+// its kind to Segment::correction (kCorrectionDup). Off until SetDupCost gets a cost of 0 or more. Requires
+// SIME_WEAVE_FUZZY (Segment::correction and the work counts). Default 0.
+#ifndef SIME_WEAVE_DUP_EDGE
+#define SIME_WEAVE_DUP_EDGE 0
+#endif
+#if SIME_WEAVE_DUP_EDGE && !SIME_WEAVE_FUZZY
+#error "SIME_WEAVE_DUP_EDGE needs SIME_WEAVE_FUZZY"
+#endif
 
 namespace sime {
 
@@ -184,7 +198,8 @@ struct Segment {
     std::string units;           // this piece of DecodeResult::units ("" when it adds none)
     bool expansion = false;      // an abbreviation / tail-completion edge
 #if SIME_WEAVE_FUZZY
-    // How the typed letters were read: 0 as typed, 1 swapped letters (SIME_WEAVE_SWAP_EDGE), 2 fuzzy pinyin. A
+    // How the typed letters were read: 0 as typed, 1 swapped letters (SIME_WEAVE_SWAP_EDGE), 2 fuzzy pinyin, 3 a doubled
+    // letter read once (SIME_WEAVE_DUP_EDGE). A
     // keyboard slip and a phonological confusion are kept apart (weave-ime WP4.3).
     std::uint8_t correction = 0;
 #endif
@@ -192,6 +207,9 @@ struct Segment {
 #if SIME_WEAVE_FUZZY
 constexpr std::uint8_t kCorrectionSwap = 1;
 constexpr std::uint8_t kCorrectionFuzzy = 2;
+#if SIME_WEAVE_DUP_EDGE
+constexpr std::uint8_t kCorrectionDup = 3;
+#endif
 // The fuzzy pairs, each switched and priced on its own (SetFuzzyCost).
 enum class FuzzyPair : std::uint8_t { kAnAng = 0, kEnEng = 1, kInIng = 2 };
 constexpr std::size_t kFuzzyPairs = 3;
@@ -352,6 +370,10 @@ public:
         std::size_t fuzzy_edges = 0;       // of `edges`, added by fuzzy pinyin
         std::size_t fuzzy_walk_steps = 0;  // pinyin trie steps of the fuzzy walks (exact prefix steps included)
 #endif
+#if SIME_WEAVE_DUP_EDGE
+        std::size_t dup_edges = 0;         // of `edges`, added by doubled letters
+        std::size_t dup_walk_steps = 0;    // pinyin trie steps of the doubled-letter walks (exact prefix steps included)
+#endif
     };
     LatticeWork LastLatticeWork() const;
 #endif
@@ -360,6 +382,11 @@ public:
     void SetFuzzyCost(FuzzyPair pair, float_t cost);
     // A fuzzy edge covers at least min_span typed bytes and makes at most max_flips flips (each paid).
     void SetFuzzyLimits(std::size_t min_span, std::size_t max_flips);
+#endif
+#if SIME_WEAVE_DUP_EDGE
+    // Edge cost of a doubled letter read once; a negative cost (the default) switches the edges off. A doubled-letter
+    // edge covers at least min_span typed bytes.
+    void SetDupCost(float_t cost, std::size_t min_span = 3);
 #endif
 #if SIME_WEAVE_READING_PRIOR
     // Lines `character<TAB>reading<TAB>penalty` (UTF-8; penalty a plain decimal number in [0, 1000], natural-log
@@ -425,6 +452,9 @@ private:
 #endif
 #if SIME_WEAVE_FUZZY
         bool fuzzy = false;            // edge added by AppendFuzzyEdges (a nasal final read as its partner)
+#endif
+#if SIME_WEAVE_DUP_EDGE
+        bool dup = false;              // edge added by AppendDupEdges (one copy of a doubled letter skipped)
 #endif
     };
 
@@ -533,6 +563,9 @@ private:
 #if SIME_WEAVE_FUZZY
     void AppendFuzzyEdges(std::vector<Node>& net, std::string_view input) const;
 #endif
+#if SIME_WEAVE_DUP_EDGE
+    void AppendDupEdges(std::vector<Node>& net, std::string_view input) const;
+#endif
     std::vector<DecodeResult> DecodeSentenceUnlocked(std::string_view input,
                                                      const std::vector<TokenID>& context,
                                                      std::size_t extra) const;
@@ -618,6 +651,10 @@ private:
     float_t fuzzy_cost_[kFuzzyPairs] = {-1, -1, -1};
     std::size_t fuzzy_min_span_ = 3;
     std::size_t fuzzy_max_flips_ = 1;
+#endif
+#if SIME_WEAVE_DUP_EDGE
+    float_t dup_cost_ = -1;
+    std::size_t dup_min_span_ = 3;
 #endif
 #if SIME_WEAVE_READING_PRIOR
     // token -> (reading, penalty); only single-character tokens with a listed reading.

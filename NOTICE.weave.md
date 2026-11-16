@@ -54,6 +54,16 @@ nor does the step after it (`State::kEdgeFuzzy`). Provenance: `Backtrace` restor
 `Segment::correction` is 0 (as typed), 1 (swap) or 2 (fuzzy); the incremental self-check compares it. Exact edges are not
 changed or filtered; with every pair off the lattice is the one without the macro.
 
+**Doubled-letter edges (experiment, local branch `weave-dup`, weave-ime Phase 5 owner feedback of 2026-11-15; default 0).**
+`SIME_WEAVE_DUP_EDGE` (`include/sime.h`, default 0: compiled out; needs `SIME_WEAVE_FUZZY`): `Sime::AppendDupEdges`,
+after `AppendFuzzyEdges` at the end of `BuildSentenceNet`, adds extra pinyin edges for words reached with one copy of
+two equal adjacent typed letters skipped (`wooxiangchifan` reaching `woxiang`). The edge covers the typed span with both
+copies, at the runtime cost of `SetDupCost(cost, min_span)` (negative, the initial value, is off; `min_span` the shortest
+edge in typed bytes, default 3) plus a reading-prior line on its reading. At most one skip per edge; it never swaps
+letters, flips a nasal, abbreviates or completes, and a token already reached over the same span by any edge gets none.
+English lookups are not touched. It takes no learning adjustment, nor does the step after it (`State::kEdgeDup`).
+Provenance: `Backtrace` restores the flag and `Segment::correction` is 3; the incremental self-check compares it.
+
 **Rare-reading penalty table (local branch `weave-unfreeze`, weave-ime Phase 5 unfreeze Task 2; from `weave-reading-prior` and `weave-reading-prior2`, F12; default 1 since Task 4, was 0).**
 `SIME_WEAVE_READING_PRIOR` (`include/sime.h`, default 1: compiled in, and nothing changes until `LoadReadingPrior` gets a table): `Sime::LoadReadingPrior` reads a
 table of (character, reading, penalty), and a single-character pinyin edge on a listed pair pays that penalty
