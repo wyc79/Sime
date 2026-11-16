@@ -31,6 +31,7 @@ no longer behaves like upstream Sime**:
 | `SIME_WEAVE_DUP_EDGE` (`include/sime.h`; p5u3 candidate) | 1 | 0 (no doubled-letter edges) | doubled-letter edges are compiled in; none are added until `SetDupCost` gets a cost of 0 or more |
 | `SIME_WEAVE_UE_ALIAS` (`include/sime.h`; p5u3 candidate) | 1 | 0 (no lue/nue alias) | lue/nue alias edges are compiled in; none are added until `SetUeAliasCost` gets a cost of 0 or more |
 | `SIME_WEAVE_NEIGHBOUR_EDGE` (`include/sime.h`; experiment, local branch `weave-nb`) | 0 | 0 (no neighbour edges) | with 1, QWERTY-neighbour edges are compiled in; none are added until `SetNeighbourCost` gets a cost of 0 or more |
+| `SIME_WEAVE_EN_TYPO` (`include/sime.h`; experiment, local branch `weave-nb`) | 0 | 0 (no English slip edges) | with 1, English slip edges are compiled in; none are added until `SetEnTypoCost` gives a kind a cost of 0 or more |
 
 **Swapped-letter edges (local branch `weave-unfreeze`, weave-ime Phase 5 unfreeze Task 2; default 1 since Task 4, was 0).**
 `SIME_WEAVE_SWAP_EDGE` (`include/sime.h`, default 1: compiled in, and no edge is added until `SetSwapCost` gets a cost of 0 or more): `Sime::AppendSwapEdges`, at the end of
@@ -87,6 +88,18 @@ per edge; it never swaps letters, flips a nasal, skips a doubled letter, aliases
 already reached over the same span by any edge gets none. English lookups are not touched. It takes no learning
 adjustment, nor does the step after it (`State::kEdgeNeighbour`). Provenance: `Backtrace` restores the flag and
 `Segment::correction` is 5; the incremental self-check compares it.
+
+**English slip edges (local branch `weave-nb`, weave-ime Phase 5 owner feedback of 2026-11-15; experiment, default 0).**
+`SIME_WEAVE_EN_TYPO` (`include/sime.h`, default 0; needs `SIME_WEAVE_NEIGHBOUR_EDGE`): `Sime::AppendEnTypoEdges`, after
+`AppendNeighbourEdges` at the end of `BuildSentenceNet`, adds extra English edges for words of the L0 English DAT and the
+overlay DAT reached with one slip of the typed letters: a QWERTY neighbour read for a typed letter, a typed letter skipped
+(never the first of the edge), a letter supplied, or two adjacent letters read swapped. Cost per kind from
+`SetEnTypoCost(kind, cost)` (negative, the initial value, is off) plus the English penalty `ComputeEdgePenalties` gives an
+exact edge over the same span; `SetEnTypoLimits(min_len, gate)`: corrected words have at least `min_len` letters (default
+4), and with `gate` (default on) a typed span that is itself an English word gets none. A token already reached over the
+same span by an English edge gets none. Pinyin lookups are not touched. It takes no learning adjustment, nor does the
+step after it (`State::kEdgeEnTypo`). Provenance: `Backtrace` restores the flag and `Segment::correction` is 6; the
+incremental self-check compares it.
 
 **Rare-reading penalty table (local branch `weave-unfreeze`, weave-ime Phase 5 unfreeze Task 2; from `weave-reading-prior` and `weave-reading-prior2`, F12; default 1 since Task 4, was 0).**
 `SIME_WEAVE_READING_PRIOR` (`include/sime.h`, default 1: compiled in, and nothing changes until `LoadReadingPrior` gets a table): `Sime::LoadReadingPrior` reads a
