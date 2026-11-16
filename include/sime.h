@@ -1,4 +1,4 @@
-// Modified by the weave-ime project (2026): search constants EnglishPenalty, EnglishPenaltyShort, BeamSize, and the scoped-penalty constants are macro-backed (SIME_WEAVE_*); adds SIME_WEAVE_CASE_FOLD and the SIME_WEAVE_LITERAL_EDGE literal-letters edge (with SIME_WEAVE_LITERAL_PER_LETTER and SIME_WEAVE_LITERAL_NONPINYIN); adds SIME_WEAVE_SPACE_BOUNDARY and SIME_WEAVE_RAW_CNT; weave defaults PENALTY_RULE=1, EN_PENALTY_MIXED=0.0, EN_SHORT_EDGE_LEN=2, EN_PENALTY_SHORT=4.0 (Phase 4.5 Task 2; were 3 and 8.0), CASE_FOLD=1, RAW_CNT=1; adds Sime::TokenizeContext (additive, no macro); adds the SIME_WEAVE_OVERLAY lexicon overlay API (LoadOverlay, layer switches, display casing, dedup by key; default 1 since Phase 4.5 Task 8c, was 0); adds the candidate-contract provenance (DecodeResult::segments and ::basis, additive, no macro); adds SIME_WEAVE_INCREMENTAL incremental decoding (snapshots per prefix, runtime switch; default 1 since Phase 4.5 Task 8c, was 0); adds the SIME_WEAVE_SWAP_EDGE swapped-letter edges (default 1 since Phase 5 unfreeze Task 4, was 0; no edge until SetSwapCost gets a cost); adds the SIME_WEAVE_READING_PRIOR rare-reading penalty table (default 1 since Task 4, was 0; nothing changes until LoadReadingPrior gets a table); adds the SIME_WEAVE_RIGHT_CONTEXT Sime::TextCost (default 1 since weave-ime Phase 5 unfreeze 2, was 0; owner feedback 7); adds the SIME_WEAVE_FUZZY front/back-nasal fuzzy pinyin edges (default 1 since unfreeze 2, was 0; no edge until SetFuzzyCost gets a cost; Segment::correction under it); adds the SIME_WEAVE_DUP_EDGE doubled-letter edges (default 1 on the p5u3 candidate (local weave, 2026-11-15; was 0); no edge until SetDupCost gets a cost; Segment::correction 3); adds the SIME_WEAVE_UE_ALIAS lue/nue alias edges (default 1 on the p5u3 candidate (local weave, 2026-11-15; was 0); no edge until SetUeAliasCost gets a cost; Segment::correction 4); adds the SIME_WEAVE_NEIGHBOUR_EDGE QWERTY-neighbour substitution edges (experiment, local branch weave-nb, default 0; no edge until SetNeighbourCost gets a cost; Segment::correction 5); adds the SIME_WEAVE_EN_TYPO English edit-1 spelling edges (experiment, local branch weave-nb, default 0; no edge until SetEnTypoCost gets a cost; Segment::correction 6) (see NOTICE.weave.md).
+// Modified by the weave-ime project (2026): search constants EnglishPenalty, EnglishPenaltyShort, BeamSize, and the scoped-penalty constants are macro-backed (SIME_WEAVE_*); adds SIME_WEAVE_CASE_FOLD and the SIME_WEAVE_LITERAL_EDGE literal-letters edge (with SIME_WEAVE_LITERAL_PER_LETTER and SIME_WEAVE_LITERAL_NONPINYIN); adds SIME_WEAVE_SPACE_BOUNDARY and SIME_WEAVE_RAW_CNT; weave defaults PENALTY_RULE=1, EN_PENALTY_MIXED=0.0, EN_SHORT_EDGE_LEN=2, EN_PENALTY_SHORT=4.0 (Phase 4.5 Task 2; were 3 and 8.0), CASE_FOLD=1, RAW_CNT=1; adds Sime::TokenizeContext (additive, no macro); adds the SIME_WEAVE_OVERLAY lexicon overlay API (LoadOverlay, layer switches, display casing, dedup by key; default 1 since Phase 4.5 Task 8c, was 0); adds the candidate-contract provenance (DecodeResult::segments and ::basis, additive, no macro); adds SIME_WEAVE_INCREMENTAL incremental decoding (snapshots per prefix, runtime switch; default 1 since Phase 4.5 Task 8c, was 0); adds the SIME_WEAVE_SWAP_EDGE swapped-letter edges (default 1 since Phase 5 unfreeze Task 4, was 0; no edge until SetSwapCost gets a cost); adds the SIME_WEAVE_READING_PRIOR rare-reading penalty table (default 1 since Task 4, was 0; nothing changes until LoadReadingPrior gets a table); adds the SIME_WEAVE_RIGHT_CONTEXT Sime::TextCost (default 1 since weave-ime Phase 5 unfreeze 2, was 0; owner feedback 7); adds the SIME_WEAVE_FUZZY front/back-nasal fuzzy pinyin edges (default 1 since unfreeze 2, was 0; no edge until SetFuzzyCost gets a cost; Segment::correction under it); adds the SIME_WEAVE_DUP_EDGE doubled-letter edges (default 1 on the p5u3 candidate (local weave, 2026-11-15; was 0); no edge until SetDupCost gets a cost; Segment::correction 3); adds the SIME_WEAVE_UE_ALIAS lue/nue alias edges (default 1 on the p5u3 candidate (local weave, 2026-11-15; was 0); no edge until SetUeAliasCost gets a cost; Segment::correction 4); adds the SIME_WEAVE_NEIGHBOUR_EDGE QWERTY-neighbour substitution edges (experiment, local branch weave-nb, default 0; no edge until SetNeighbourCost gets a cost; Segment::correction 5); adds the SIME_WEAVE_EN_TYPO English edit-1 spelling edges (experiment, local branch weave-nb, default 0; no edge until SetEnTypoCost gets a cost; Segment::correction 6); adds the SIME_WEAVE_EXTRA_EDGE stray-key (extra letter) edges (experiment, local branch weave-nb, default 0; no edge until SetExtraCost gets a cost; Segment::correction 7) (see NOTICE.weave.md).
 #pragma once
 
 #include "common.h"
@@ -206,6 +206,21 @@
 #if SIME_WEAVE_EN_TYPO && !SIME_WEAVE_NEIGHBOUR_EDGE
 #error "SIME_WEAVE_EN_TYPO needs SIME_WEAVE_NEIGHBOUR_EDGE"
 #endif
+// SIME_WEAVE_EXTRA_EDGE=1 (experiment, local branch weave-nb, weave-ime Phase 5 owner feedback of 2026-11-15): a stray
+// key typed between two letters. The sentence decoder also looks pinyin words up with one typed letter skipped
+// (woxianmgchifan reaches woxiangchifan). The skip costs SetExtraCost's `cost` when the letter is a QWERTY neighbour of
+// the typed letter before or after it, `other_cost` otherwise (negative: none); a letter equal to its neighbour is the
+// doubled-letter edge's. Each match is an extra edge over the typed span plus the word's reading-table line, added after
+// every other pinyin edge is final, so it never replaces or filters one. At most one skip per edge, never the edge's
+// first letter; never chained with another correction, an abbreviation or a completion; English lookups are not
+// touched. No learning adjustment into or out of it. It carries its kind to Segment::correction (kCorrectionExtra).
+// Off until SetExtraCost gets a cost of 0 or more. Requires SIME_WEAVE_NEIGHBOUR_EDGE (the QWERTY table). Default 0.
+#ifndef SIME_WEAVE_EXTRA_EDGE
+#define SIME_WEAVE_EXTRA_EDGE 0
+#endif
+#if SIME_WEAVE_EXTRA_EDGE && !SIME_WEAVE_NEIGHBOUR_EDGE
+#error "SIME_WEAVE_EXTRA_EDGE needs SIME_WEAVE_NEIGHBOUR_EDGE"
+#endif
 
 namespace sime {
 
@@ -249,7 +264,7 @@ struct Segment {
     // How the typed letters were read: 0 as typed, 1 swapped letters (SIME_WEAVE_SWAP_EDGE), 2 fuzzy pinyin, 3 a doubled
     // letter read once (SIME_WEAVE_DUP_EDGE), 4 lue/nue read as lve/nve (SIME_WEAVE_UE_ALIAS), 5 a
     // letter read as its QWERTY neighbour (SIME_WEAVE_NEIGHBOUR_EDGE), 6 an English word read with one keyboard slip
-    // (SIME_WEAVE_EN_TYPO). A
+    // (SIME_WEAVE_EN_TYPO), 7 a stray key skipped (SIME_WEAVE_EXTRA_EDGE). A
     // keyboard slip and a phonological confusion are kept apart (weave-ime WP4.3).
     std::uint8_t correction = 0;
 #endif
@@ -272,6 +287,9 @@ constexpr std::uint8_t kCorrectionEnTypo = 6;
 // typed key, a missing key, two adjacent letters swapped.
 enum class EnTypoKind : std::uint8_t { kSubstitute = 0, kExtra = 1, kMissing = 2, kTranspose = 3 };
 constexpr std::size_t kEnTypoKinds = 4;
+#endif
+#if SIME_WEAVE_EXTRA_EDGE
+constexpr std::uint8_t kCorrectionExtra = 7;
 #endif
 // The fuzzy pairs, each switched and priced on its own (SetFuzzyCost).
 enum class FuzzyPair : std::uint8_t { kAnAng = 0, kEnEng = 1, kInIng = 2 };
@@ -445,6 +463,10 @@ public:
         std::size_t en_typo_edges = 0;     // of `edges`, added by English slips
         std::size_t en_typo_walk_steps = 0;  // English trie steps of the slip walks (exact prefix steps included)
 #endif
+#if SIME_WEAVE_EXTRA_EDGE
+        std::size_t extra_edges = 0;       // of `edges`, added by stray keys
+        std::size_t extra_walk_steps = 0;  // pinyin trie steps of the stray-key walks (exact prefix steps included)
+#endif
     };
     LatticeWork LastLatticeWork() const;
 #endif
@@ -483,6 +505,12 @@ public:
     // the English word "i" typed after a word, is never absorbed into the word before it).
     void SetEnTypoCost(EnTypoKind kind, float_t cost);
     void SetEnTypoLimits(std::size_t min_len, bool gate, bool extra_at_end = true);
+#endif
+#if SIME_WEAVE_EXTRA_EDGE
+    // Edge cost of one skipped stray letter: `cost` for a QWERTY neighbour of the letter before or after it,
+    // `other_cost` for any other (negative: none). A negative `cost` (the default) switches the edges off. An edge
+    // covers at least min_span typed bytes.
+    void SetExtraCost(float_t cost, float_t other_cost, std::size_t min_span = 3);
 #endif
 #if SIME_WEAVE_READING_PRIOR
     // Lines `character<TAB>reading<TAB>penalty` (UTF-8; penalty a plain decimal number in [0, 1000], natural-log
@@ -560,6 +588,9 @@ private:
 #endif
 #if SIME_WEAVE_EN_TYPO
         bool en_typo = false;          // edge added by AppendEnTypoEdges (an English word read with one slip)
+#endif
+#if SIME_WEAVE_EXTRA_EDGE
+        bool extra = false;            // edge added by AppendExtraEdges (one stray letter skipped)
 #endif
     };
 
@@ -680,6 +711,9 @@ private:
 #if SIME_WEAVE_EN_TYPO
     void AppendEnTypoEdges(std::vector<Node>& net, std::string_view input) const;
 #endif
+#if SIME_WEAVE_EXTRA_EDGE
+    void AppendExtraEdges(std::vector<Node>& net, std::string_view input) const;
+#endif
     std::vector<DecodeResult> DecodeSentenceUnlocked(std::string_view input,
                                                      const std::vector<TokenID>& context,
                                                      std::size_t extra) const;
@@ -784,6 +818,11 @@ private:
     std::size_t en_typo_min_len_ = 4;
     bool en_typo_gate_ = true;
     bool en_typo_extra_at_end_ = true;
+#endif
+#if SIME_WEAVE_EXTRA_EDGE
+    float_t extra_cost_ = -1;
+    float_t extra_other_cost_ = -1;
+    std::size_t extra_min_span_ = 3;
 #endif
 #if SIME_WEAVE_READING_PRIOR
     // token -> (reading, penalty); only single-character tokens with a listed reading.

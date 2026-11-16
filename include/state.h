@@ -1,4 +1,4 @@
-// Modified by the weave-ime project (2026): adds SIME_WEAVE_BEAM_EXACT (exact column eviction), SIME_WEAVE_COLUMN_BEAM_SIZE (column state cap, default 48) and the SIME_WEAVE_BEAM_CHECK invariant check; weave default BEAM_EXACT=1; State keeps the edge's flags (backtrace_flags, additive, no macro) (see NOTICE.weave.md); adds State::kEdgeFuzzy (SIME_WEAVE_FUZZY); adds State::kEdgeDup (SIME_WEAVE_DUP_EDGE) and State::kEdgeUeAlias (SIME_WEAVE_UE_ALIAS); adds State::kEdgeNeighbour (SIME_WEAVE_NEIGHBOUR_EDGE, experiment); adds State::kEdgeEnTypo (SIME_WEAVE_EN_TYPO, experiment).
+// Modified by the weave-ime project (2026): adds SIME_WEAVE_BEAM_EXACT (exact column eviction), SIME_WEAVE_COLUMN_BEAM_SIZE (column state cap, default 48) and the SIME_WEAVE_BEAM_CHECK invariant check; weave default BEAM_EXACT=1; State keeps the edge's flags (backtrace_flags, additive, no macro) (see NOTICE.weave.md); adds State::kEdgeFuzzy (SIME_WEAVE_FUZZY); adds State::kEdgeDup (SIME_WEAVE_DUP_EDGE) and State::kEdgeUeAlias (SIME_WEAVE_UE_ALIAS); adds State::kEdgeNeighbour (SIME_WEAVE_NEIGHBOUR_EDGE, experiment); adds State::kEdgeEnTypo (SIME_WEAVE_EN_TYPO, experiment); backtrace_flags widened to 16 bits (same padding, sizeof(State) unchanged) for State::kEdgeExtra (SIME_WEAVE_EXTRA_EDGE, experiment).
 #pragma once
 
 #include "common.h"
@@ -48,7 +48,7 @@ struct State {
     // (kEdgeEnglish, kEdgeExpansion), so Backtrace can rebuild them for the
     // candidate contract. Fills padding after backtrace_token: sizeof(State)
     // is unchanged on 64-bit targets.
-    std::uint8_t backtrace_flags = 0;
+    std::uint16_t backtrace_flags = 0;
     const char* backtrace_pieces = nullptr;
 
     static constexpr std::uint8_t kEdgeEnglish = 1;
@@ -59,6 +59,7 @@ struct State {
     static constexpr std::uint8_t kEdgeUeAlias = 32;  // SIME_WEAVE_UE_ALIAS: an edge that reads typed lue/nue as lve/nve
     static constexpr std::uint8_t kEdgeNeighbour = 64;  // SIME_WEAVE_NEIGHBOUR_EDGE: an edge that reads a letter as its QWERTY neighbour
     static constexpr std::uint8_t kEdgeEnTypo = 128;  // SIME_WEAVE_EN_TYPO: an English edge read with one keyboard slip
+    static constexpr std::uint16_t kEdgeExtra = 256;  // SIME_WEAVE_EXTRA_EDGE: an edge that skips one stray letter
 
     State() = default;
 
@@ -68,7 +69,7 @@ struct State {
           const State* backtrace_state,
           TokenID backtrace_token,
           const char* backtrace_pieces = nullptr,
-          std::uint8_t backtrace_flags = 0);
+          std::uint16_t backtrace_flags = 0);
 
     bool operator<(const State& r) const {
         return score < r.score;
