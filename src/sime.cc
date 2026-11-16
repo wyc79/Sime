@@ -1,4 +1,4 @@
-// Modified by the weave-ime project (2026): ComputeEdgePenalties gains the SIME_WEAVE_PENALTY_RULE scoped English penalty; English DAT lookups gain SIME_WEAVE_CASE_FOLD (folded and, for a span with capitals, as-typed lookups merged per folded key) and AbbreviatePieces matches letters ignoring case under it; InitNet gains the SIME_WEAVE_LITERAL_EDGE literal-letters edge (with SIME_WEAVE_LITERAL_PER_LETTER and SIME_WEAVE_LITERAL_NONPINYIN); NormalizeInput, InitNet and DecodeSentence gain SIME_WEAVE_SPACE_BOUNDARY and SIME_WEAVE_RAW_CNT; adds Sime::TokenizeContext (Cutter over the last N code points of committed text; additive, no macro); adds the SIME_WEAVE_OVERLAY lexicon overlay (overlay English edges at a bounded cost with a history break, display casing, dedup by key; default 1 since the Task 8c fork commit b605d07); adds the candidate-contract provenance (edge flags kept through State and Backtrace, DecodeResult::segments and ::basis from DecodeSentence; additive, no macro); DecodeSentence split into BuildSentenceNet / SentenceResults and Process into Relax, with segments filled only for emitted candidates (no output change); adds SIME_WEAVE_INCREMENTAL incremental decoding (snapshots per normalised prefix, Process resumed at the first changed column, generation counter, fallback; default 1 since Task 8c, runtime switch Sime::SetIncremental); adds the SIME_WEAVE_SWAP_EDGE swapped-letter edges (AppendSwapEdges at the end of BuildSentenceNet, sentence decoder only; default 1 since Task 4, was 0; a swap edge takes no learning adjustment); adds the SIME_WEAVE_READING_PRIOR rare-reading penalty table (LoadReadingPrior, ApplyReadingPrior after ComputeEdgePenalties in the sentence and word decoders, a `drop` line removes the edge; default 1 since Task 4, was 0); adds Sime::TextCost under SIME_WEAVE_RIGHT_CONTEXT (default 1 since weave-ime Phase 5 unfreeze 2, was 0); adds the SIME_WEAVE_FUZZY front/back-nasal fuzzy pinyin edges (AppendFuzzyEdges after AppendSwapEdges, per-pair runtime costs, no learning adjustment, Backtrace restores the swap and fuzzy flags, Segment::correction; default 1 since unfreeze 2, was 0); adds the SIME_WEAVE_DUP_EDGE doubled-letter edges (default 1 on the p5u3 candidate (local weave, 2026-11-15; was 0): AppendDupEdges after AppendFuzzyEdges, runtime cost, no learning adjustment, Backtrace restores the flag, Segment::correction 3); adds the SIME_WEAVE_UE_ALIAS lue/nue alias edges (default 1 on the p5u3 candidate (local weave, 2026-11-15; was 0): AppendUeAliasEdges after the overlay edges and before the swap edges, runtime cost, learns like an exact edge, Segment::correction 4).
+// Modified by the weave-ime project (2026): ComputeEdgePenalties gains the SIME_WEAVE_PENALTY_RULE scoped English penalty; English DAT lookups gain SIME_WEAVE_CASE_FOLD (folded and, for a span with capitals, as-typed lookups merged per folded key) and AbbreviatePieces matches letters ignoring case under it; InitNet gains the SIME_WEAVE_LITERAL_EDGE literal-letters edge (with SIME_WEAVE_LITERAL_PER_LETTER and SIME_WEAVE_LITERAL_NONPINYIN); NormalizeInput, InitNet and DecodeSentence gain SIME_WEAVE_SPACE_BOUNDARY and SIME_WEAVE_RAW_CNT; adds Sime::TokenizeContext (Cutter over the last N code points of committed text; additive, no macro); adds the SIME_WEAVE_OVERLAY lexicon overlay (overlay English edges at a bounded cost with a history break, display casing, dedup by key; default 1 since the Task 8c fork commit b605d07); adds the candidate-contract provenance (edge flags kept through State and Backtrace, DecodeResult::segments and ::basis from DecodeSentence; additive, no macro); DecodeSentence split into BuildSentenceNet / SentenceResults and Process into Relax, with segments filled only for emitted candidates (no output change); adds SIME_WEAVE_INCREMENTAL incremental decoding (snapshots per normalised prefix, Process resumed at the first changed column, generation counter, fallback; default 1 since Task 8c, runtime switch Sime::SetIncremental); adds the SIME_WEAVE_SWAP_EDGE swapped-letter edges (AppendSwapEdges at the end of BuildSentenceNet, sentence decoder only; default 1 since Task 4, was 0; a swap edge takes no learning adjustment); adds the SIME_WEAVE_READING_PRIOR rare-reading penalty table (LoadReadingPrior, ApplyReadingPrior after ComputeEdgePenalties in the sentence and word decoders, a `drop` line removes the edge; default 1 since Task 4, was 0); adds Sime::TextCost under SIME_WEAVE_RIGHT_CONTEXT (default 1 since weave-ime Phase 5 unfreeze 2, was 0); adds the SIME_WEAVE_FUZZY front/back-nasal fuzzy pinyin edges (AppendFuzzyEdges after AppendSwapEdges, per-pair runtime costs, no learning adjustment, Backtrace restores the swap and fuzzy flags, Segment::correction; default 1 since unfreeze 2, was 0); adds the SIME_WEAVE_DUP_EDGE doubled-letter edges (default 1 on the p5u3 candidate (local weave, 2026-11-15; was 0): AppendDupEdges after AppendFuzzyEdges, runtime cost, no learning adjustment, Backtrace restores the flag, Segment::correction 3); adds the SIME_WEAVE_UE_ALIAS lue/nue alias edges (default 1 on the p5u3 candidate (local weave, 2026-11-15; was 0): AppendUeAliasEdges after the overlay edges and before the swap edges, runtime cost, learns like an exact edge, Segment::correction 4); adds the SIME_WEAVE_NEIGHBOUR_EDGE QWERTY-neighbour substitution edges (experiment, local branch weave-nb, default 0: AppendNeighbourEdges after AppendDupEdges, runtime cost per (typed, intended) pair, no learning adjustment, Backtrace restores the flag, Segment::correction 5).
 #include "sime.h"
 
 #include "cut.h"
@@ -1217,6 +1217,9 @@ void Sime::FillSegment(const Link& link, std::string_view input, Segment& seg) c
 #if SIME_WEAVE_UE_ALIAS
     if (link.ue_alias) seg.correction = kCorrectionUeAlias;
 #endif
+#if SIME_WEAVE_NEIGHBOUR_EDGE
+    if (link.nb) seg.correction = kCorrectionNeighbour;
+#endif
 #endif
 #if SIME_WEAVE_LITERAL_EDGE
     if (link.id == LiteralToken) {
@@ -1972,6 +1975,9 @@ std::uint8_t EdgeFlags(const L& l) {
 #if SIME_WEAVE_UE_ALIAS
                                      | (l.ue_alias ? State::kEdgeUeAlias : 0)
 #endif
+#if SIME_WEAVE_NEIGHBOUR_EDGE
+                                     | (l.nb ? State::kEdgeNeighbour : 0)
+#endif
                                      );
 }
 }  // namespace
@@ -2010,6 +2016,10 @@ void Sime::Relax(const State& value, const Link& word, NetStates& target) const 
 #if SIME_WEAVE_DUP_EDGE
     // And for a doubled letter read once (weave-ime, owner feedback of 2026-11-15).
     touches_swap = touches_swap || word.dup || (value.backtrace_flags & State::kEdgeDup) != 0;
+#endif
+#if SIME_WEAVE_NEIGHBOUR_EDGE
+    // And for a letter read as its QWERTY neighbour (weave-ime, owner feedback of 2026-11-15).
+    touches_swap = touches_swap || word.nb || (value.backtrace_flags & State::kEdgeNeighbour) != 0;
 #endif
 #else
     const bool touches_swap = false;
@@ -2057,6 +2067,9 @@ std::vector<Sime::Link> Sime::Backtrace(
 #endif
 #if SIME_WEAVE_UE_ALIAS
         link.ue_alias = state->backtrace_flags & State::kEdgeUeAlias;
+#endif
+#if SIME_WEAVE_NEIGHBOUR_EDGE
+        link.nb = state->backtrace_flags & State::kEdgeNeighbour;
 #endif
         path.push_back(link);
         state = prev;
@@ -2191,6 +2204,9 @@ void Sime::BuildSentenceNet(std::string_view lower, std::vector<Node>& net) cons
 #endif
 #if SIME_WEAVE_DUP_EDGE
     AppendDupEdges(net, lower);
+#endif
+#if SIME_WEAVE_NEIGHBOUR_EDGE
+    AppendNeighbourEdges(net, lower);
 #endif
 }
 
@@ -2549,6 +2565,141 @@ void Sime::AppendUeAliasEdges(std::vector<Node>& net, std::string_view input) co
 }
 #endif
 
+#if SIME_WEAVE_NEIGHBOUR_EDGE
+namespace {
+// Staggered QWERTY, positions in quarter keys: rows offset 0, 1 and 3 quarters.
+bool QwertyPos(char c, int& x, int& row) {
+    static const char* const rows[3] = {"qwertyuiop", "asdfghjkl", "zxcvbnm"};
+    static const int off[3] = {0, 1, 3};
+    for (int r = 0; r < 3; ++r)
+        for (int i = 0; rows[r][i]; ++i)
+            if (rows[r][i] == c) { x = 4 * i + off[r]; row = r; return true; }
+    return false;
+}
+}  // namespace
+
+bool Sime::QwertyNeighbours(char a, char b) {
+    int xa, ra, xb, rb;
+    if (a == b || !QwertyPos(a, xa, ra) || !QwertyPos(b, xb, rb)) return false;
+    const int dx = xa > xb ? xa - xb : xb - xa;
+    if (ra == rb) return dx <= 4;
+    return (ra - rb == 1 || rb - ra == 1) && dx < 4;
+}
+
+bool Sime::QwertySameRow(char a, char b) {
+    int xa, ra, xb, rb;
+    return QwertyPos(a, xa, ra) && QwertyPos(b, xb, rb) && ra == rb;
+}
+
+void Sime::SetNeighbourCost(float_t cost, float_t cross_cost, std::size_t min_span) {
+    std::lock_guard<std::mutex> lock(decode_mutex_);
+#if SIME_WEAVE_INCREMENTAL
+    BumpGeneration();
+#endif
+    nb_on_ = cost >= 0;
+    nb_min_span_ = min_span;
+    for (int t = 0; t < 26; ++t)
+        for (int i = 0; i < 26; ++i) {
+            const char a = static_cast<char>('a' + t), b = static_cast<char>('a' + i);
+            const float_t c = QwertySameRow(a, b) ? cost : (cross_cost < 0 ? -1 : cross_cost);
+            nb_cost_[t * 26 + i] = nb_on_ && QwertyNeighbours(a, b) ? c : -1;
+        }
+}
+
+bool Sime::SetNeighbourPairCost(char typed, char intended, float_t cost) {
+    if (!QwertyNeighbours(typed, intended)) return false;
+    std::lock_guard<std::mutex> lock(decode_mutex_);
+#if SIME_WEAVE_INCREMENTAL
+    BumpGeneration();
+#endif
+    nb_cost_[(typed - 'a') * 26 + (intended - 'a')] = cost < 0 ? -1 : cost;
+    return true;
+}
+
+// For each column, the walk follows the typed letters through the pinyin trie (stored letters only, no abbreviation,
+// no swapped letters, no fuzzy flip, no skip) and, at each typed letter a-z, branches once per QWERTY neighbour with a
+// cost: the branch reads the neighbour in place of the typed letter and goes on with the typed letters after it. Every
+// word that ends at or after the substituted letter is an edge over the typed span at the pair's cost plus a
+// reading-prior line on it, unless any edge already holds the same token over the same span; the same token reached
+// over the same span by two branches keeps the cheaper one (the first on a tie). One substitution per edge.
+void Sime::AppendNeighbourEdges(std::vector<Node>& net, std::string_view input) const {
+    lattice_work_.nb_edges = lattice_work_.nb_walk_steps = 0;
+    if (!nb_on_) return;
+    using States = std::vector<trie::DoubleArray::PinyinState>;
+    const auto& dat = dict_.Dat(Dict::LetterPinyin);
+    const std::size_t total = input.size();
+    std::size_t added = 0, steps = 0;
+    auto letter = [](char c) { return c >= 'a' && c <= 'z'; };
+    auto step = [&](States& st, char ch) {
+        dat.AdvancePinyinStates(st, static_cast<uint8_t>(ch));
+        std::erase_if(st, [](const auto& x) { return x.fuzzy; });
+        ++steps;
+    };
+    auto key = [](TokenID id, std::size_t end) { return (static_cast<std::uint64_t>(id) << 32) | end; };
+    for (std::size_t s = 0; s < total; ++s) {
+        if (input[s] == '\'' || input[s] == ' ') continue;
+        std::vector<Link> found;
+        std::unordered_set<std::uint64_t> seen;
+        std::unordered_map<std::uint64_t, std::size_t> at;  // key -> index in found
+        for (const auto& e : net[s].es)
+            if (!IsNoToken(e.id) && !e.english) seen.insert(key(e.id, e.end));
+        auto record = [&](const States& st, std::size_t end, float_t cost) {
+            if (end - s < nb_min_span_ || st.empty()) return;
+            for (const auto& r : dat.CollectPrefixMatchesPinyin(st, end - s, 512, false)) {
+                const auto entry = dict_.GetEntry(Dict::LetterPinyin, r.value);
+                for (std::uint32_t i = 0; i < entry.count; ++i) {
+                    float_t penalty = cost;
+#if SIME_WEAVE_READING_PRIOR
+                    if (auto it = reading_prior_.find(entry.items[i].id); it != reading_prior_.end()) {
+                        for (const auto& [reading, p] : it->second)
+                            if (entry.items[i].pieces && reading == entry.items[i].pieces) { penalty += p; break; }
+                    }
+                    if (std::isinf(penalty)) continue;
+#endif
+                    const auto k = key(entry.items[i].id, end);
+                    if (seen.count(k)) continue;
+                    if (auto f = at.find(k); f != at.end()) {
+                        if (penalty < found[f->second].penalty) {
+                            found[f->second].penalty = penalty;
+                            found[f->second].pieces = entry.items[i].pieces;
+                        }
+                        continue;
+                    }
+                    Link link{s, end, entry.items[i].id, entry.items[i].pieces, penalty, false, false};
+                    link.nb = true;
+                    at.emplace(k, found.size());
+                    found.push_back(link);
+                }
+            }
+        };
+        States exact = dat.StartPinyinStates();
+        for (std::size_t p = s; p < total && !exact.empty(); ++p) {
+            if (letter(input[p])) {
+                const int t = input[p] - 'a';
+                for (int i = 0; i < 26; ++i) {
+                    const float_t cost = nb_cost_[t * 26 + i];
+                    if (cost < 0) continue;
+                    States st = exact;
+                    step(st, static_cast<char>('a' + i));
+                    record(st, p + 1, cost);
+                    for (std::size_t q = p + 1; q < total && !st.empty(); ++q) {
+                        step(st, input[q]);
+                        record(st, q + 1, cost);
+                    }
+                }
+            }
+            step(exact, input[p]);
+        }
+        PruneNode(found);
+        added += found.size();
+        net[s].es.insert(net[s].es.end(), found.begin(), found.end());
+    }
+    lattice_work_.edges += added;
+    lattice_work_.nb_edges = added;
+    lattice_work_.nb_walk_steps = steps;
+}
+#endif
+
 std::vector<DecodeResult> Sime::DecodeSentenceUnlocked(
     std::string_view input,
     const std::vector<TokenID>& context,
@@ -2760,6 +2911,9 @@ bool SameLink(const L& a, const L& b) {
 #endif
 #if SIME_WEAVE_UE_ALIAS
            && a.ue_alias == b.ue_alias
+#endif
+#if SIME_WEAVE_NEIGHBOUR_EDGE
+           && a.nb == b.nb
 #endif
            ;
 }

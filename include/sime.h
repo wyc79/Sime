@@ -1,4 +1,4 @@
-// Modified by the weave-ime project (2026): search constants EnglishPenalty, EnglishPenaltyShort, BeamSize, and the scoped-penalty constants are macro-backed (SIME_WEAVE_*); adds SIME_WEAVE_CASE_FOLD and the SIME_WEAVE_LITERAL_EDGE literal-letters edge (with SIME_WEAVE_LITERAL_PER_LETTER and SIME_WEAVE_LITERAL_NONPINYIN); adds SIME_WEAVE_SPACE_BOUNDARY and SIME_WEAVE_RAW_CNT; weave defaults PENALTY_RULE=1, EN_PENALTY_MIXED=0.0, EN_SHORT_EDGE_LEN=2, EN_PENALTY_SHORT=4.0 (Phase 4.5 Task 2; were 3 and 8.0), CASE_FOLD=1, RAW_CNT=1; adds Sime::TokenizeContext (additive, no macro); adds the SIME_WEAVE_OVERLAY lexicon overlay API (LoadOverlay, layer switches, display casing, dedup by key; default 1 since Phase 4.5 Task 8c, was 0); adds the candidate-contract provenance (DecodeResult::segments and ::basis, additive, no macro); adds SIME_WEAVE_INCREMENTAL incremental decoding (snapshots per prefix, runtime switch; default 1 since Phase 4.5 Task 8c, was 0); adds the SIME_WEAVE_SWAP_EDGE swapped-letter edges (default 1 since Phase 5 unfreeze Task 4, was 0; no edge until SetSwapCost gets a cost); adds the SIME_WEAVE_READING_PRIOR rare-reading penalty table (default 1 since Task 4, was 0; nothing changes until LoadReadingPrior gets a table); adds the SIME_WEAVE_RIGHT_CONTEXT Sime::TextCost (default 1 since weave-ime Phase 5 unfreeze 2, was 0; owner feedback 7); adds the SIME_WEAVE_FUZZY front/back-nasal fuzzy pinyin edges (default 1 since unfreeze 2, was 0; no edge until SetFuzzyCost gets a cost; Segment::correction under it); adds the SIME_WEAVE_DUP_EDGE doubled-letter edges (default 1 on the p5u3 candidate (local weave, 2026-11-15; was 0); no edge until SetDupCost gets a cost; Segment::correction 3); adds the SIME_WEAVE_UE_ALIAS lue/nue alias edges (default 1 on the p5u3 candidate (local weave, 2026-11-15; was 0); no edge until SetUeAliasCost gets a cost; Segment::correction 4) (see NOTICE.weave.md).
+// Modified by the weave-ime project (2026): search constants EnglishPenalty, EnglishPenaltyShort, BeamSize, and the scoped-penalty constants are macro-backed (SIME_WEAVE_*); adds SIME_WEAVE_CASE_FOLD and the SIME_WEAVE_LITERAL_EDGE literal-letters edge (with SIME_WEAVE_LITERAL_PER_LETTER and SIME_WEAVE_LITERAL_NONPINYIN); adds SIME_WEAVE_SPACE_BOUNDARY and SIME_WEAVE_RAW_CNT; weave defaults PENALTY_RULE=1, EN_PENALTY_MIXED=0.0, EN_SHORT_EDGE_LEN=2, EN_PENALTY_SHORT=4.0 (Phase 4.5 Task 2; were 3 and 8.0), CASE_FOLD=1, RAW_CNT=1; adds Sime::TokenizeContext (additive, no macro); adds the SIME_WEAVE_OVERLAY lexicon overlay API (LoadOverlay, layer switches, display casing, dedup by key; default 1 since Phase 4.5 Task 8c, was 0); adds the candidate-contract provenance (DecodeResult::segments and ::basis, additive, no macro); adds SIME_WEAVE_INCREMENTAL incremental decoding (snapshots per prefix, runtime switch; default 1 since Phase 4.5 Task 8c, was 0); adds the SIME_WEAVE_SWAP_EDGE swapped-letter edges (default 1 since Phase 5 unfreeze Task 4, was 0; no edge until SetSwapCost gets a cost); adds the SIME_WEAVE_READING_PRIOR rare-reading penalty table (default 1 since Task 4, was 0; nothing changes until LoadReadingPrior gets a table); adds the SIME_WEAVE_RIGHT_CONTEXT Sime::TextCost (default 1 since weave-ime Phase 5 unfreeze 2, was 0; owner feedback 7); adds the SIME_WEAVE_FUZZY front/back-nasal fuzzy pinyin edges (default 1 since unfreeze 2, was 0; no edge until SetFuzzyCost gets a cost; Segment::correction under it); adds the SIME_WEAVE_DUP_EDGE doubled-letter edges (default 1 on the p5u3 candidate (local weave, 2026-11-15; was 0); no edge until SetDupCost gets a cost; Segment::correction 3); adds the SIME_WEAVE_UE_ALIAS lue/nue alias edges (default 1 on the p5u3 candidate (local weave, 2026-11-15; was 0); no edge until SetUeAliasCost gets a cost; Segment::correction 4); adds the SIME_WEAVE_NEIGHBOUR_EDGE QWERTY-neighbour substitution edges (experiment, local branch weave-nb, default 0; no edge until SetNeighbourCost gets a cost; Segment::correction 5) (see NOTICE.weave.md).
 #pragma once
 
 #include "common.h"
@@ -7,6 +7,7 @@
 #include "dict.h"
 #include "user.h"
 #include "overlay.h"
+#include <array>
 #include <filesystem>
 #include <functional>
 #include <memory>
@@ -174,6 +175,21 @@
 #if SIME_WEAVE_UE_ALIAS && !SIME_WEAVE_FUZZY
 #error "SIME_WEAVE_UE_ALIAS needs SIME_WEAVE_FUZZY"
 #endif
+// SIME_WEAVE_NEIGHBOUR_EDGE=1 (experiment, local branch weave-nb, weave-ime Phase 5 owner feedback of 2026-11-15): a key
+// pressed for its QWERTY neighbour. The sentence decoder also looks pinyin words up with one typed letter read as one of
+// its neighbours on a staggered QWERTY layout (zhonhguo reaches zhongguo, 中国). Each match is an extra edge over the
+// typed span at a runtime cost per (typed, intended) pair (SetNeighbourCost, SetNeighbourPairCost) plus the word's
+// reading-table line, added after every other pinyin edge is final, so it never replaces or filters one. At most one
+// substitution per edge; never chained with a swap, a fuzzy flip, a doubled letter, an alias, an abbreviation or a
+// completion; English lookups are not touched. No learning adjustment into or out of it. It carries its kind to
+// Segment::correction (kCorrectionNeighbour). Off until SetNeighbourCost gets a cost of 0 or more. Requires
+// SIME_WEAVE_FUZZY (Segment::correction and the work counts). Default 0.
+#ifndef SIME_WEAVE_NEIGHBOUR_EDGE
+#define SIME_WEAVE_NEIGHBOUR_EDGE 0
+#endif
+#if SIME_WEAVE_NEIGHBOUR_EDGE && !SIME_WEAVE_FUZZY
+#error "SIME_WEAVE_NEIGHBOUR_EDGE needs SIME_WEAVE_FUZZY"
+#endif
 
 namespace sime {
 
@@ -215,7 +231,8 @@ struct Segment {
     bool expansion = false;      // an abbreviation / tail-completion edge
 #if SIME_WEAVE_FUZZY
     // How the typed letters were read: 0 as typed, 1 swapped letters (SIME_WEAVE_SWAP_EDGE), 2 fuzzy pinyin, 3 a doubled
-    // letter read once (SIME_WEAVE_DUP_EDGE), 4 lue/nue read as lve/nve (SIME_WEAVE_UE_ALIAS). A
+    // letter read once (SIME_WEAVE_DUP_EDGE), 4 lue/nue read as lve/nve (SIME_WEAVE_UE_ALIAS), 5 a
+    // letter read as its QWERTY neighbour (SIME_WEAVE_NEIGHBOUR_EDGE). A
     // keyboard slip and a phonological confusion are kept apart (weave-ime WP4.3).
     std::uint8_t correction = 0;
 #endif
@@ -228,6 +245,9 @@ constexpr std::uint8_t kCorrectionDup = 3;
 #endif
 #if SIME_WEAVE_UE_ALIAS
 constexpr std::uint8_t kCorrectionUeAlias = 4;
+#endif
+#if SIME_WEAVE_NEIGHBOUR_EDGE
+constexpr std::uint8_t kCorrectionNeighbour = 5;
 #endif
 // The fuzzy pairs, each switched and priced on its own (SetFuzzyCost).
 enum class FuzzyPair : std::uint8_t { kAnAng = 0, kEnEng = 1, kInIng = 2 };
@@ -393,6 +413,10 @@ public:
         std::size_t dup_edges = 0;         // of `edges`, added by doubled letters
         std::size_t dup_walk_steps = 0;    // pinyin trie steps of the doubled-letter walks (exact prefix steps included)
 #endif
+#if SIME_WEAVE_NEIGHBOUR_EDGE
+        std::size_t nb_edges = 0;          // of `edges`, added by neighbour-key substitutions
+        std::size_t nb_walk_steps = 0;     // pinyin trie steps of the neighbour walks (exact prefix steps included)
+#endif
     };
     LatticeWork LastLatticeWork() const;
 #endif
@@ -410,6 +434,19 @@ public:
 #if SIME_WEAVE_UE_ALIAS
     // Edge cost per lue/nue alias; a negative cost (the default) switches the edges off.
     void SetUeAliasCost(float_t cost);
+#endif
+#if SIME_WEAVE_NEIGHBOUR_EDGE
+    // Edge cost of one typed letter read as a QWERTY neighbour (staggered rows qwertyuiop / asdfghjkl / zxcvbnm, offsets
+    // 0, 1/4, 3/4 key; a neighbour is beside it in its row, or in the row above or below less than one key away). Sets
+    // every neighbour pair in the same row to `cost` and every pair across rows to `cross_cost`; a negative `cost` (the
+    // default) switches the edges off, a negative `cross_cost` only the pairs across rows. A neighbour edge covers at
+    // least min_span typed bytes.
+    void SetNeighbourCost(float_t cost, float_t cross_cost, std::size_t min_span = 3);
+    static bool QwertySameRow(char a, char b);
+    // Replaces the cost of one (typed, intended) pair after SetNeighbourCost; a negative cost drops that pair. Returns
+    // false (and changes nothing) unless both are letters a-z and neighbours.
+    bool SetNeighbourPairCost(char typed, char intended, float_t cost);
+    static bool QwertyNeighbours(char a, char b);
 #endif
 #if SIME_WEAVE_READING_PRIOR
     // Lines `character<TAB>reading<TAB>penalty` (UTF-8; penalty a plain decimal number in [0, 1000], natural-log
@@ -481,6 +518,9 @@ private:
 #endif
 #if SIME_WEAVE_UE_ALIAS
         bool ue_alias = false;         // edge added by AppendUeAliasEdges (lue/nue read as lve/nve)
+#endif
+#if SIME_WEAVE_NEIGHBOUR_EDGE
+        bool nb = false;               // edge added by AppendNeighbourEdges (one letter read as its QWERTY neighbour)
 #endif
     };
 
@@ -595,6 +635,9 @@ private:
 #if SIME_WEAVE_UE_ALIAS
     void AppendUeAliasEdges(std::vector<Node>& net, std::string_view input) const;
 #endif
+#if SIME_WEAVE_NEIGHBOUR_EDGE
+    void AppendNeighbourEdges(std::vector<Node>& net, std::string_view input) const;
+#endif
     std::vector<DecodeResult> DecodeSentenceUnlocked(std::string_view input,
                                                      const std::vector<TokenID>& context,
                                                      std::size_t extra) const;
@@ -687,6 +730,12 @@ private:
 #endif
 #if SIME_WEAVE_UE_ALIAS
     float_t ue_alias_cost_ = -1;
+#endif
+#if SIME_WEAVE_NEIGHBOUR_EDGE
+    // nb_cost_[typed * 26 + intended]; negative = no edge. nb_on_ is false until SetNeighbourCost gets a cost >= 0.
+    std::array<float_t, 26 * 26> nb_cost_{};
+    bool nb_on_ = false;
+    std::size_t nb_min_span_ = 3;
 #endif
 #if SIME_WEAVE_READING_PRIOR
     // token -> (reading, penalty); only single-character tokens with a listed reading.

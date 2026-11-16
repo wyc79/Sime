@@ -30,6 +30,7 @@ no longer behaves like upstream Sime**:
 | `SIME_WEAVE_RIGHT_CONTEXT` (`include/sime.h`; Phase 5 unfreeze 2) | 1 | 0 (no `TextCost`) | `Sime::TextCost` is compiled in; nothing calls it but the host |
 | `SIME_WEAVE_DUP_EDGE` (`include/sime.h`; p5u3 candidate) | 1 | 0 (no doubled-letter edges) | doubled-letter edges are compiled in; none are added until `SetDupCost` gets a cost of 0 or more |
 | `SIME_WEAVE_UE_ALIAS` (`include/sime.h`; p5u3 candidate) | 1 | 0 (no lue/nue alias) | lue/nue alias edges are compiled in; none are added until `SetUeAliasCost` gets a cost of 0 or more |
+| `SIME_WEAVE_NEIGHBOUR_EDGE` (`include/sime.h`; experiment, local branch `weave-nb`) | 0 | 0 (no neighbour edges) | with 1, QWERTY-neighbour edges are compiled in; none are added until `SetNeighbourCost` gets a cost of 0 or more |
 
 **Swapped-letter edges (local branch `weave-unfreeze`, weave-ime Phase 5 unfreeze Task 2; default 1 since Task 4, was 0).**
 `SIME_WEAVE_SWAP_EDGE` (`include/sime.h`, default 1: compiled in, and no edge is added until `SetSwapCost` gets a cost of 0 or more): `Sime::AppendSwapEdges`, at the end of
@@ -74,6 +75,18 @@ with a typed `u` read as the stored `v` where a typed `l` or `n` starts the syll
 value, is off) plus a reading-prior line. Exact edges are not changed or filtered (`lu|e` stays), and a token already
 reached over the same span by an exact or overlay edge gets none. It learns like an exact edge. Provenance: `Backtrace`
 restores `State::kEdgeUeAlias` and `Segment::correction` is 4; the incremental self-check compares it.
+
+**QWERTY-neighbour substitution edges (local branch `weave-nb`, weave-ime Phase 5 owner feedback of 2026-11-15; experiment, default 0).**
+`SIME_WEAVE_NEIGHBOUR_EDGE` (`include/sime.h`, default 0; needs `SIME_WEAVE_FUZZY`): `Sime::AppendNeighbourEdges`, after
+`AppendDupEdges` at the end of `BuildSentenceNet`, adds extra pinyin edges for words reached with one typed letter read as
+one of its neighbours on a staggered QWERTY layout (`zhonhguo` reaching `zhongguo`). The edge covers the typed span, at the
+runtime cost of `SetNeighbourCost(cost, cross_cost, min_span)` for a neighbour in the same row (`cost`) or in the row above
+or below (`cross_cost`; negative drops those pairs), with `SetNeighbourPairCost(typed, intended, cost)` replacing one
+pair, plus a reading-prior line on its reading. A negative `cost` (the initial state) is off. At most one substitution
+per edge; it never swaps letters, flips a nasal, skips a doubled letter, aliases, abbreviates or completes, and a token
+already reached over the same span by any edge gets none. English lookups are not touched. It takes no learning
+adjustment, nor does the step after it (`State::kEdgeNeighbour`). Provenance: `Backtrace` restores the flag and
+`Segment::correction` is 5; the incremental self-check compares it.
 
 **Rare-reading penalty table (local branch `weave-unfreeze`, weave-ime Phase 5 unfreeze Task 2; from `weave-reading-prior` and `weave-reading-prior2`, F12; default 1 since Task 4, was 0).**
 `SIME_WEAVE_READING_PRIOR` (`include/sime.h`, default 1: compiled in, and nothing changes until `LoadReadingPrior` gets a table): `Sime::LoadReadingPrior` reads a
