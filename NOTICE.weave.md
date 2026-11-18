@@ -9,7 +9,7 @@ Per Apache-2.0 section 4, files modified in this fork carry a header line
 
 Each change below is a `SIME_WEAVE_*` macro guarded by `#ifndef`. Until
 weave-ime Phase 2 Task 8 every default reproduced upstream. Since then seven
-defaults differ from upstream, since Phase 4.5 Task 8c nine, since Phase 5 unfreeze Task 4 twelve, since Phase 5 unfreeze 2 (2026-11-13) fourteen, and on the p5u3 candidate (local weave, 2026-11-15) sixteen, so **a build with no `-D` defines
+defaults differ from upstream, since Phase 4.5 Task 8c nine, since Phase 5 unfreeze Task 4 twelve, since Phase 5 unfreeze 2 (2026-11-13) fourteen, on the p5u3 candidate (local weave, 2026-11-15) sixteen, and with the p5u5 last-column bucket (local weave, 2026-11-17) one more, so **a build with no `-D` defines
 no longer behaves like upstream Sime**:
 
 | macro | weave default | upstream value | effect of the weave default |
@@ -34,7 +34,7 @@ no longer behaves like upstream Sime**:
 | `SIME_WEAVE_EN_TYPO` (`include/sime.h`; experiment, local branch `weave-nb`) | 0 | 0 (no English slip edges) | with 1, English slip edges are compiled in; none are added until `SetEnTypoCost` gives a kind a cost of 0 or more |
 | `SIME_WEAVE_EXTRA_EDGE` (`include/sime.h`; p5u4 candidate) | 1 | 0 (no stray-key edges) | stray-key edges are compiled in; none are added until `SetExtraCost` gets a cost of 0 or more |
 | `SIME_WEAVE_WORD_PRIOR` (`include/sime.h`; weave-ime Phase 5 colloquial prior, local weave) | 0 | 0 (no word prior) | with 1, the word prior table is compiled in; nothing changes until `LoadWordPrior` gets a table |
-| `SIME_WEAVE_TAIL_BEAM_SIZE` (`include/state.h`; weave-ime Phase 5 Task 21, local weave) | 0 | 0 (the last column capped like the others) | with N > 0, the sentence decoder's last column keeps N states and up to N whole readings come out (see below) |
+| `SIME_WEAVE_TAIL_BEAM_SIZE` (`include/state.h`; weave-ime Phase 5 Task 21, the p5u5 freeze, local weave) | 128 | 0 (the last column capped like the others) | the sentence decoder's last column keeps 128 states per bucket and in all, and up to 128 whole readings come out when a request asks for that many (see below) |
 
 **Swapped-letter edges (local branch `weave-unfreeze`, weave-ime Phase 5 unfreeze Task 2; default 1 since Task 4, was 0).**
 `SIME_WEAVE_SWAP_EDGE` (`include/sime.h`, default 1: compiled in, and no edge is added until `SetSwapCost` gets a cost of 0 or more): `Sime::AppendSwapEdges`, at the end of
@@ -159,8 +159,8 @@ snapshot. A line is `word<TAB>reading<TAB>adjustment` (UTF-8 without a BOM), the
 pinyin item are refused at load, leaving the table empty. The table is an input, not part of Sime.
 Touches `include/sime.h`, `src/sime.cc`.
 
-**Last-column bucket (local weave, weave-ime Phase 5 Task 21, the p5u5 freeze; default 0).**
-`SIME_WEAVE_TAIL_BEAM_SIZE` (`include/state.h`, default 0 = off; N > 0 must be at least `SIME_WEAVE_BEAM_SIZE`): the sentence
+**Last-column bucket (local weave, weave-ime Phase 5 Task 21, the p5u5 freeze; default 128 since the p5u5 freeze, was 0).**
+`SIME_WEAVE_TAIL_BEAM_SIZE` (`include/state.h`, default 128; 0 = off; N > 0 must be at least `SIME_WEAVE_BEAM_SIZE`): the sentence
 decoder's last column (the end of the input) keeps N states per LM-state bucket and max(N, `SIME_WEAVE_COLUMN_BEAM_SIZE`) in
 all (`NetStates::SetMaxColumn`), and Layer 1 of `SentenceResults` scans its first N states instead of `SIME_WEAVE_BEAM_SIZE`,
 so up to N whole-input readings come out (each request still takes at most 1 + extra of them). Every other column keeps its
