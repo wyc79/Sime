@@ -133,15 +133,19 @@ Touches `include/sime.h`, `src/sime.cc`.
 pair gets that signed adjustment added to its penalty (negative: a bonus). The sibling of the rare-reading table, which
 leaves multi-character words alone; a single-character word is refused. `ApplyWordPrior` runs next to `ApplyReadingPrior`
 (after `ComputeEdgePenalties`, before `PruneNode`) in the sentence decoder (`BuildSentenceNet`) and the word decoder
-(`DecodeStr`), so the pruning, the beam and the layer-2 word entries all see it; the corrected pinyin edges (swap, fuzzy,
-doubled letter, lue/nue alias, neighbour key, stray key) add the same adjustment where they are made, swap edges
-included (unlike the reading table). The key is the dictionary reading, so an abbreviation or completion of a listed
+(`DecodeStr`), so the pruning, the beam and the layer-2 word entries all see it. By default only those exact edges get
+it (weave-ime owner, 2026-11-17: "默认只对准确读音加分"). The non-exact pinyin edges (fuzzy nasals, lue/nue alias, swap,
+doubled letter, neighbour key, stray key) add it where they are made only after `SetWordPriorOnCorrected(true)` (a change
+bumps the incremental generation): their costs were tuned against an unchanged model, so a bonus would make a
+correction to a listed word cheaper than measured. A reading key the dictionary itself holds is an exact edge: weave-ime's one-way 给 alias keys (补给 under bu'gei, 给予
+under ji'yu, ...) match a table line on that alias reading, so the table lists the canonical reading only. The key is the
+dictionary reading, so an abbreviation or completion of a listed
 word gets it too. English and overlay edges, `GetTokens`, `NextTokens` and the T9 path are not touched. Only a listed
 pair's penalty changes (an unlisted edge keeps its bits, which the incremental snapshots compare); `BuildSentenceNet`
 is shared by full and resumed decodes, and `LoadWordPrior` bumps the incremental generation, so a load drops every
-snapshot. A line is `word<TAB>reading<TAB>adjustment`, the reading as the dictionary stores it (`shi'shi`), the
-adjustment a plain decimal in [-1000, 1000] read with `from_chars` (C locale independent); an empty, hex, `+`-signed,
-non-finite or out-of-range adjustment, a pair listed twice and a pair the dictionary does not hold as a multi-character
+snapshot. A line is `word<TAB>reading<TAB>adjustment` (UTF-8 without a BOM), the reading as the dictionary stores it
+(`shi'shi`), the adjustment a plain decimal in [-1000, 1000] (digits, an optional leading `-` and `.`) read with
+`from_chars` (C locale independent); an empty, `+`-signed, exponent, hex, non-finite or out-of-range adjustment, a BOM, a pair listed twice and a pair the dictionary does not hold as a multi-character
 pinyin item are refused at load, leaving the table empty. The table is an input, not part of Sime.
 Touches `include/sime.h`, `src/sime.cc`.
 

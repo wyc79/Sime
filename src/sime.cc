@@ -1,4 +1,4 @@
-// Modified by the weave-ime project (2026): ComputeEdgePenalties gains the SIME_WEAVE_PENALTY_RULE scoped English penalty; English DAT lookups gain SIME_WEAVE_CASE_FOLD (folded and, for a span with capitals, as-typed lookups merged per folded key) and AbbreviatePieces matches letters ignoring case under it; InitNet gains the SIME_WEAVE_LITERAL_EDGE literal-letters edge (with SIME_WEAVE_LITERAL_PER_LETTER and SIME_WEAVE_LITERAL_NONPINYIN); NormalizeInput, InitNet and DecodeSentence gain SIME_WEAVE_SPACE_BOUNDARY and SIME_WEAVE_RAW_CNT; adds Sime::TokenizeContext (Cutter over the last N code points of committed text; additive, no macro); adds the SIME_WEAVE_OVERLAY lexicon overlay (overlay English edges at a bounded cost with a history break, display casing, dedup by key; default 1 since the Task 8c fork commit b605d07); adds the candidate-contract provenance (edge flags kept through State and Backtrace, DecodeResult::segments and ::basis from DecodeSentence; additive, no macro); DecodeSentence split into BuildSentenceNet / SentenceResults and Process into Relax, with segments filled only for emitted candidates (no output change); adds SIME_WEAVE_INCREMENTAL incremental decoding (snapshots per normalised prefix, Process resumed at the first changed column, generation counter, fallback; default 1 since Task 8c, runtime switch Sime::SetIncremental); adds the SIME_WEAVE_SWAP_EDGE swapped-letter edges (AppendSwapEdges at the end of BuildSentenceNet, sentence decoder only; default 1 since Task 4, was 0; a swap edge takes no learning adjustment); adds the SIME_WEAVE_READING_PRIOR rare-reading penalty table (LoadReadingPrior, ApplyReadingPrior after ComputeEdgePenalties in the sentence and word decoders, a `drop` line removes the edge; default 1 since Task 4, was 0); adds Sime::TextCost under SIME_WEAVE_RIGHT_CONTEXT (default 1 since weave-ime Phase 5 unfreeze 2, was 0); adds the SIME_WEAVE_FUZZY front/back-nasal fuzzy pinyin edges (AppendFuzzyEdges after AppendSwapEdges, per-pair runtime costs, no learning adjustment, Backtrace restores the swap and fuzzy flags, Segment::correction; default 1 since unfreeze 2, was 0); adds the SIME_WEAVE_DUP_EDGE doubled-letter edges (default 1 on the p5u3 candidate (local weave, 2026-11-15; was 0): AppendDupEdges after AppendFuzzyEdges, runtime cost, no learning adjustment, Backtrace restores the flag, Segment::correction 3); adds the SIME_WEAVE_UE_ALIAS lue/nue alias edges (default 1 on the p5u3 candidate (local weave, 2026-11-15; was 0): AppendUeAliasEdges after the overlay edges and before the swap edges, runtime cost, learns like an exact edge, Segment::correction 4); adds the SIME_WEAVE_NEIGHBOUR_EDGE QWERTY-neighbour substitution edges (default 1 on the p5u4 candidate (local weave, 2026-11-16; was 0): AppendNeighbourEdges after AppendDupEdges, runtime cost per (typed, intended) pair, no learning adjustment, Backtrace restores the flag, Segment::correction 5); adds the SIME_WEAVE_EN_TYPO English edit-1 spelling edges (experiment, local branch weave-nb, default 0: AppendEnTypoEdges after AppendNeighbourEdges, L0 and overlay English DATs, runtime cost per edit kind plus the span's English penalty, no learning adjustment, Backtrace restores the flag, Segment::correction 6); adds the SIME_WEAVE_EXTRA_EDGE stray-key edges (default 1 on the p5u4 candidate (local weave, 2026-11-16; was 0): AppendExtraEdges after AppendEnTypoEdges, one typed letter skipped at a cost for a QWERTY neighbour of the letter before or after and another for any other letter, no learning adjustment, Backtrace restores the flag (State flags 16 bits), Segment::correction 7); adds the SIME_WEAVE_WORD_PRIOR word prior table (default 0: LoadWordPrior, ApplyWordPrior next to ApplyReadingPrior in the sentence and word decoders, and the same adjustment on every corrected pinyin edge, swap edges included; a signed adjustment on multi-character (word, reading) pairs).
+// Modified by the weave-ime project (2026): ComputeEdgePenalties gains the SIME_WEAVE_PENALTY_RULE scoped English penalty; English DAT lookups gain SIME_WEAVE_CASE_FOLD (folded and, for a span with capitals, as-typed lookups merged per folded key) and AbbreviatePieces matches letters ignoring case under it; InitNet gains the SIME_WEAVE_LITERAL_EDGE literal-letters edge (with SIME_WEAVE_LITERAL_PER_LETTER and SIME_WEAVE_LITERAL_NONPINYIN); NormalizeInput, InitNet and DecodeSentence gain SIME_WEAVE_SPACE_BOUNDARY and SIME_WEAVE_RAW_CNT; adds Sime::TokenizeContext (Cutter over the last N code points of committed text; additive, no macro); adds the SIME_WEAVE_OVERLAY lexicon overlay (overlay English edges at a bounded cost with a history break, display casing, dedup by key; default 1 since the Task 8c fork commit b605d07); adds the candidate-contract provenance (edge flags kept through State and Backtrace, DecodeResult::segments and ::basis from DecodeSentence; additive, no macro); DecodeSentence split into BuildSentenceNet / SentenceResults and Process into Relax, with segments filled only for emitted candidates (no output change); adds SIME_WEAVE_INCREMENTAL incremental decoding (snapshots per normalised prefix, Process resumed at the first changed column, generation counter, fallback; default 1 since Task 8c, runtime switch Sime::SetIncremental); adds the SIME_WEAVE_SWAP_EDGE swapped-letter edges (AppendSwapEdges at the end of BuildSentenceNet, sentence decoder only; default 1 since Task 4, was 0; a swap edge takes no learning adjustment); adds the SIME_WEAVE_READING_PRIOR rare-reading penalty table (LoadReadingPrior, ApplyReadingPrior after ComputeEdgePenalties in the sentence and word decoders, a `drop` line removes the edge; default 1 since Task 4, was 0); adds Sime::TextCost under SIME_WEAVE_RIGHT_CONTEXT (default 1 since weave-ime Phase 5 unfreeze 2, was 0); adds the SIME_WEAVE_FUZZY front/back-nasal fuzzy pinyin edges (AppendFuzzyEdges after AppendSwapEdges, per-pair runtime costs, no learning adjustment, Backtrace restores the swap and fuzzy flags, Segment::correction; default 1 since unfreeze 2, was 0); adds the SIME_WEAVE_DUP_EDGE doubled-letter edges (default 1 on the p5u3 candidate (local weave, 2026-11-15; was 0): AppendDupEdges after AppendFuzzyEdges, runtime cost, no learning adjustment, Backtrace restores the flag, Segment::correction 3); adds the SIME_WEAVE_UE_ALIAS lue/nue alias edges (default 1 on the p5u3 candidate (local weave, 2026-11-15; was 0): AppendUeAliasEdges after the overlay edges and before the swap edges, runtime cost, learns like an exact edge, Segment::correction 4); adds the SIME_WEAVE_NEIGHBOUR_EDGE QWERTY-neighbour substitution edges (default 1 on the p5u4 candidate (local weave, 2026-11-16; was 0): AppendNeighbourEdges after AppendDupEdges, runtime cost per (typed, intended) pair, no learning adjustment, Backtrace restores the flag, Segment::correction 5); adds the SIME_WEAVE_EN_TYPO English edit-1 spelling edges (experiment, local branch weave-nb, default 0: AppendEnTypoEdges after AppendNeighbourEdges, L0 and overlay English DATs, runtime cost per edit kind plus the span's English penalty, no learning adjustment, Backtrace restores the flag, Segment::correction 6); adds the SIME_WEAVE_EXTRA_EDGE stray-key edges (default 1 on the p5u4 candidate (local weave, 2026-11-16; was 0): AppendExtraEdges after AppendEnTypoEdges, one typed letter skipped at a cost for a QWERTY neighbour of the letter before or after and another for any other letter, no learning adjustment, Backtrace restores the flag (State flags 16 bits), Segment::correction 7); adds the SIME_WEAVE_WORD_PRIOR word prior table (default 0: LoadWordPrior, ApplyWordPrior next to ApplyReadingPrior in the sentence and word decoders, exact edges only by default, and also the fuzzy, lue/nue alias, swap, doubled-letter, neighbour and stray-key edges after SetWordPriorOnCorrected(true); a signed adjustment on multi-character (word, reading) pairs).
 #include "sime.h"
 
 #include "cut.h"
@@ -584,7 +584,10 @@ bool Sime::LoadWordPrior(const std::filesystem::path& path, std::string* error) 
     if (!in) return fail("cannot open " + path.string());
     std::map<std::pair<std::u32string, std::string>, float_t> want;
     std::string line;
+    bool first = true;
     while (std::getline(in, line)) {
+        if (first && line.rfind("\xEF\xBB\xBF", 0) == 0) return fail("the file starts with a UTF-8 BOM; save it without one");
+        first = false;
         if (!line.empty() && line.back() == '\r') line.pop_back();
         if (line.empty() || line[0] == '#') continue;
         const auto t1 = line.find('\t');
@@ -593,12 +596,14 @@ bool Sime::LoadWordPrior(const std::filesystem::path& path, std::string* error) 
         const std::u32string word = ustr::ToU32(line.substr(0, t1));
         const std::string reading = line.substr(t1 + 1, t2 - t1 - 1);
         const std::string value = line.substr(t2 + 1);
-        // from_chars, as LoadReadingPrior: a plain decimal number whatever the C locale; a leading '+', blanks, hex,
-        // an empty value and a magnitude above 1000 are malformed. Negative is a bonus.
+        // A plain decimal number: only digits, '-' and '.' (so no '+', blank, exponent, hex, nan or inf), read with
+        // from_chars as LoadReadingPrior does, whatever the C locale; an empty value and a magnitude above 1000 are
+        // malformed. Negative is a bonus.
         double a = 0.0;
-        const auto r = std::from_chars(value.data(), value.data() + value.size(), a);
-        const bool bad_number = value.empty() || r.ec != std::errc() || r.ptr != value.data() + value.size() ||
-                                !std::isfinite(a) || std::fabs(a) > 1000.0;
+        const auto r = std::from_chars(value.data(), value.data() + value.size(), a, std::chars_format::fixed);
+        const bool bad_number = value.empty() || value.find_first_not_of("0123456789.-") != std::string::npos ||
+                                r.ec != std::errc() || r.ptr != value.data() + value.size() || !std::isfinite(a) ||
+                                std::fabs(a) > 1000.0;
         if (word.size() < 2 || reading.empty() || bad_number) return fail("malformed line: " + line);
         if (!want.emplace(std::make_pair(word, reading), static_cast<float_t>(a)).second) {
             return fail("pair listed twice: " + line);
@@ -629,6 +634,20 @@ bool Sime::LoadWordPrior(const std::filesystem::path& path, std::string* error) 
 std::size_t Sime::WordPriorSize() const {
     std::lock_guard<std::mutex> lock(decode_mutex_);
     return word_prior_size_;
+}
+
+void Sime::SetWordPriorOnCorrected(bool on) {
+    std::lock_guard<std::mutex> lock(decode_mutex_);
+    if (word_prior_corrected_ == on) return;
+    word_prior_corrected_ = on;
+#if SIME_WEAVE_INCREMENTAL
+    BumpGeneration();
+#endif
+}
+
+bool Sime::WordPriorOnCorrected() const {
+    std::lock_guard<std::mutex> lock(decode_mutex_);
+    return word_prior_corrected_;
 }
 
 float_t Sime::WordPriorAdjust(TokenID id, const char* pieces) const {
@@ -2380,8 +2399,9 @@ void Sime::AppendSwapEdges(std::vector<Node>& net, std::string_view input) const
                     if (!seen.insert(key(entry.items[i].id, end)).second) continue;
                     Link link{s, end, entry.items[i].id, entry.items[i].pieces, cost, false, false};
 #if SIME_WEAVE_WORD_PRIOR
-                    // Unlike the reading table, the word prior reaches swap edges too: every pinyin edge on a listed pair.
-                    if (const float_t wp = WordPriorAdjust(link.id, link.pieces); wp != 0) link.penalty += wp;
+                    // Not an exact reading: only with SetWordPriorOnCorrected(true) (the swap cost was tuned without it).
+                    if (word_prior_corrected_)
+                        if (const float_t wp = WordPriorAdjust(link.id, link.pieces); wp != 0) link.penalty += wp;
 #endif
                     link.swap = true;
                     out.push_back(link);
@@ -2488,7 +2508,8 @@ void Sime::AppendFuzzyEdges(std::vector<Node>& net, std::string_view input) cons
                     if (std::isinf(penalty)) continue;
 #endif
 #if SIME_WEAVE_WORD_PRIOR
-                    if (const float_t wp = WordPriorAdjust(entry.items[i].id, entry.items[i].pieces); wp != 0) penalty += wp;
+                    if (word_prior_corrected_)  // not an exact reading: only with SetWordPriorOnCorrected(true)
+                        if (const float_t wp = WordPriorAdjust(entry.items[i].id, entry.items[i].pieces); wp != 0) penalty += wp;
 #endif
                     if (!seen.insert(key(entry.items[i].id, end)).second) continue;
                     Link link{s, end, entry.items[i].id, entry.items[i].pieces, penalty, false, false};
@@ -2592,7 +2613,8 @@ void Sime::AppendDupEdges(std::vector<Node>& net, std::string_view input) const 
                     if (std::isinf(penalty)) continue;
 #endif
 #if SIME_WEAVE_WORD_PRIOR
-                    if (const float_t wp = WordPriorAdjust(entry.items[i].id, entry.items[i].pieces); wp != 0) penalty += wp;
+                    if (word_prior_corrected_)  // not an exact reading: only with SetWordPriorOnCorrected(true)
+                        if (const float_t wp = WordPriorAdjust(entry.items[i].id, entry.items[i].pieces); wp != 0) penalty += wp;
 #endif
                     if (!seen.insert(key(entry.items[i].id, end)).second) continue;
                     Link link{s, end, entry.items[i].id, entry.items[i].pieces, penalty, false, false};
@@ -2669,7 +2691,8 @@ void Sime::AppendUeAliasEdges(std::vector<Node>& net, std::string_view input) co
                     if (std::isinf(penalty)) continue;
 #endif
 #if SIME_WEAVE_WORD_PRIOR
-                    if (const float_t wp = WordPriorAdjust(entry.items[i].id, entry.items[i].pieces); wp != 0) penalty += wp;
+                    if (word_prior_corrected_)  // not an exact reading: only with SetWordPriorOnCorrected(true)
+                        if (const float_t wp = WordPriorAdjust(entry.items[i].id, entry.items[i].pieces); wp != 0) penalty += wp;
 #endif
                     if (!seen.insert(key(entry.items[i].id, end)).second) continue;
                     Link link{s, end, entry.items[i].id, entry.items[i].pieces, penalty, false, false};
@@ -2795,7 +2818,8 @@ void Sime::AppendNeighbourEdges(std::vector<Node>& net, std::string_view input) 
                     if (std::isinf(penalty)) continue;
 #endif
 #if SIME_WEAVE_WORD_PRIOR
-                    if (const float_t wp = WordPriorAdjust(entry.items[i].id, entry.items[i].pieces); wp != 0) penalty += wp;
+                    if (word_prior_corrected_)  // not an exact reading: only with SetWordPriorOnCorrected(true)
+                        if (const float_t wp = WordPriorAdjust(entry.items[i].id, entry.items[i].pieces); wp != 0) penalty += wp;
 #endif
                     const auto k = key(entry.items[i].id, end);
                     if (seen.count(k)) continue;
@@ -3062,7 +3086,8 @@ void Sime::AppendExtraEdges(std::vector<Node>& net, std::string_view input) cons
                     if (std::isinf(penalty)) continue;
 #endif
 #if SIME_WEAVE_WORD_PRIOR
-                    if (const float_t wp = WordPriorAdjust(entry.items[i].id, entry.items[i].pieces); wp != 0) penalty += wp;
+                    if (word_prior_corrected_)  // not an exact reading: only with SetWordPriorOnCorrected(true)
+                        if (const float_t wp = WordPriorAdjust(entry.items[i].id, entry.items[i].pieces); wp != 0) penalty += wp;
 #endif
                     const auto k = key(entry.items[i].id, end);
                     if (seen.count(k)) continue;

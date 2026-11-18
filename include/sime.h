@@ -1,4 +1,4 @@
-// Modified by the weave-ime project (2026): search constants EnglishPenalty, EnglishPenaltyShort, BeamSize, and the scoped-penalty constants are macro-backed (SIME_WEAVE_*); adds SIME_WEAVE_CASE_FOLD and the SIME_WEAVE_LITERAL_EDGE literal-letters edge (with SIME_WEAVE_LITERAL_PER_LETTER and SIME_WEAVE_LITERAL_NONPINYIN); adds SIME_WEAVE_SPACE_BOUNDARY and SIME_WEAVE_RAW_CNT; weave defaults PENALTY_RULE=1, EN_PENALTY_MIXED=0.0, EN_SHORT_EDGE_LEN=2, EN_PENALTY_SHORT=4.0 (Phase 4.5 Task 2; were 3 and 8.0), CASE_FOLD=1, RAW_CNT=1; adds Sime::TokenizeContext (additive, no macro); adds the SIME_WEAVE_OVERLAY lexicon overlay API (LoadOverlay, layer switches, display casing, dedup by key; default 1 since Phase 4.5 Task 8c, was 0); adds the candidate-contract provenance (DecodeResult::segments and ::basis, additive, no macro); adds SIME_WEAVE_INCREMENTAL incremental decoding (snapshots per prefix, runtime switch; default 1 since Phase 4.5 Task 8c, was 0); adds the SIME_WEAVE_SWAP_EDGE swapped-letter edges (default 1 since Phase 5 unfreeze Task 4, was 0; no edge until SetSwapCost gets a cost); adds the SIME_WEAVE_READING_PRIOR rare-reading penalty table (default 1 since Task 4, was 0; nothing changes until LoadReadingPrior gets a table); adds the SIME_WEAVE_RIGHT_CONTEXT Sime::TextCost (default 1 since weave-ime Phase 5 unfreeze 2, was 0; owner feedback 7); adds the SIME_WEAVE_FUZZY front/back-nasal fuzzy pinyin edges (default 1 since unfreeze 2, was 0; no edge until SetFuzzyCost gets a cost; Segment::correction under it); adds the SIME_WEAVE_DUP_EDGE doubled-letter edges (default 1 on the p5u3 candidate (local weave, 2026-11-15; was 0); no edge until SetDupCost gets a cost; Segment::correction 3); adds the SIME_WEAVE_UE_ALIAS lue/nue alias edges (default 1 on the p5u3 candidate (local weave, 2026-11-15; was 0); no edge until SetUeAliasCost gets a cost; Segment::correction 4); adds the SIME_WEAVE_NEIGHBOUR_EDGE QWERTY-neighbour substitution edges (default 1 on the p5u4 candidate (local weave, 2026-11-16; was 0); no edge until SetNeighbourCost gets a cost; Segment::correction 5); adds the SIME_WEAVE_EN_TYPO English edit-1 spelling edges (experiment, local branch weave-nb, default 0; no edge until SetEnTypoCost gets a cost; Segment::correction 6); adds the SIME_WEAVE_EXTRA_EDGE stray-key (extra letter) edges (default 1 on the p5u4 candidate (local weave, 2026-11-16; was 0); no edge until SetExtraCost gets a cost; Segment::correction 7); adds the SIME_WEAVE_WORD_PRIOR word prior table (default 0; nothing changes until LoadWordPrior gets a table) (see NOTICE.weave.md).
+// Modified by the weave-ime project (2026): search constants EnglishPenalty, EnglishPenaltyShort, BeamSize, and the scoped-penalty constants are macro-backed (SIME_WEAVE_*); adds SIME_WEAVE_CASE_FOLD and the SIME_WEAVE_LITERAL_EDGE literal-letters edge (with SIME_WEAVE_LITERAL_PER_LETTER and SIME_WEAVE_LITERAL_NONPINYIN); adds SIME_WEAVE_SPACE_BOUNDARY and SIME_WEAVE_RAW_CNT; weave defaults PENALTY_RULE=1, EN_PENALTY_MIXED=0.0, EN_SHORT_EDGE_LEN=2, EN_PENALTY_SHORT=4.0 (Phase 4.5 Task 2; were 3 and 8.0), CASE_FOLD=1, RAW_CNT=1; adds Sime::TokenizeContext (additive, no macro); adds the SIME_WEAVE_OVERLAY lexicon overlay API (LoadOverlay, layer switches, display casing, dedup by key; default 1 since Phase 4.5 Task 8c, was 0); adds the candidate-contract provenance (DecodeResult::segments and ::basis, additive, no macro); adds SIME_WEAVE_INCREMENTAL incremental decoding (snapshots per prefix, runtime switch; default 1 since Phase 4.5 Task 8c, was 0); adds the SIME_WEAVE_SWAP_EDGE swapped-letter edges (default 1 since Phase 5 unfreeze Task 4, was 0; no edge until SetSwapCost gets a cost); adds the SIME_WEAVE_READING_PRIOR rare-reading penalty table (default 1 since Task 4, was 0; nothing changes until LoadReadingPrior gets a table); adds the SIME_WEAVE_RIGHT_CONTEXT Sime::TextCost (default 1 since weave-ime Phase 5 unfreeze 2, was 0; owner feedback 7); adds the SIME_WEAVE_FUZZY front/back-nasal fuzzy pinyin edges (default 1 since unfreeze 2, was 0; no edge until SetFuzzyCost gets a cost; Segment::correction under it); adds the SIME_WEAVE_DUP_EDGE doubled-letter edges (default 1 on the p5u3 candidate (local weave, 2026-11-15; was 0); no edge until SetDupCost gets a cost; Segment::correction 3); adds the SIME_WEAVE_UE_ALIAS lue/nue alias edges (default 1 on the p5u3 candidate (local weave, 2026-11-15; was 0); no edge until SetUeAliasCost gets a cost; Segment::correction 4); adds the SIME_WEAVE_NEIGHBOUR_EDGE QWERTY-neighbour substitution edges (default 1 on the p5u4 candidate (local weave, 2026-11-16; was 0); no edge until SetNeighbourCost gets a cost; Segment::correction 5); adds the SIME_WEAVE_EN_TYPO English edit-1 spelling edges (experiment, local branch weave-nb, default 0; no edge until SetEnTypoCost gets a cost; Segment::correction 6); adds the SIME_WEAVE_EXTRA_EDGE stray-key (extra letter) edges (default 1 on the p5u4 candidate (local weave, 2026-11-16; was 0); no edge until SetExtraCost gets a cost; Segment::correction 7); adds the SIME_WEAVE_WORD_PRIOR word prior table (default 0; nothing changes until LoadWordPrior gets a table; exact edges only unless SetWordPriorOnCorrected(true)) (see NOTICE.weave.md).
 #pragma once
 
 #include "common.h"
@@ -126,9 +126,11 @@
 #endif
 // SIME_WEAVE_WORD_PRIOR=1 (weave-ime Phase 5, Docs/plans/phase-5-colloquial-prior.md Layer 1): with a table from
 // LoadWordPrior, a multi-character pinyin word edge on a listed (word, reading) gets that signed adjustment added to its
-// cost (negative: a bonus), in the sentence and word decoders, on exact and corrected edges alike. The sibling of the
-// reading table, which leaves multi-character words alone; single characters are never listed. Default 0; with 1,
-// nothing changes until LoadWordPrior gets a table.
+// cost (negative: a bonus), in the sentence and word decoders: exact edges always; the fuzzy nasal, lue/nue alias and typo
+// correction edges (swap, doubled letter, neighbour key, stray key) only after SetWordPriorOnCorrected(true), since
+// their costs were tuned against an unchanged model (owner, 2026-11-17: exact readings only by default). The sibling of the reading
+// table, which leaves multi-character words alone; single characters are never listed. Default 0; with 1, nothing
+// changes until LoadWordPrior gets a table.
 #ifndef SIME_WEAVE_WORD_PRIOR
 #define SIME_WEAVE_WORD_PRIOR 0
 #endif
@@ -531,13 +533,18 @@ public:
     std::size_t ReadingPriorSize() const;
 #endif
 #if SIME_WEAVE_WORD_PRIOR
-    // Lines `word<TAB>reading<TAB>adjustment` (UTF-8; the word at least two code points, the reading as the dictionary
-    // stores it, e.g. shi'shi; the adjustment a plain signed decimal number in [-1000, 1000], natural-log cost, parsed
-    // independently of the C locale; negative is a bonus). Blank lines and lines starting with '#' are skipped. A pair
-    // listed twice, an empty or hex or out-of-range adjustment, a leading '+', a single-character word and a pair the
-    // dictionary does not hold as a pinyin item are refused. Replaces any earlier table; fails leaving the table empty.
+    // Lines `word<TAB>reading<TAB>adjustment` (UTF-8 without a BOM; the word at least two code points, the reading as
+    // the dictionary stores it, e.g. shi'shi; the adjustment a plain signed decimal number, digits with an optional
+    // leading '-' and '.', in [-1000, 1000], natural-log cost, parsed independently of the C locale; negative is a bonus).
+    // Blank lines and lines starting with '#' are skipped. A pair listed twice, an empty adjustment, a leading '+', an
+    // exponent (1e2), hex, blanks, an out-of-range value, a single-character word, a pair the dictionary does not hold as
+    // a pinyin item and a BOM are refused. Replaces any earlier table; fails leaving the table empty.
     bool LoadWordPrior(const std::filesystem::path& path, std::string* error = nullptr);
     std::size_t WordPriorSize() const;
+    // Whether every non-exact pinyin edge (fuzzy nasal, lue/nue alias, swap, doubled letter, neighbour key, stray key)
+    // also gets the adjustment (default false: exact edges only). A change drops the incremental snapshots.
+    void SetWordPriorOnCorrected(bool on);
+    bool WordPriorOnCorrected() const;
 #endif
 #if SIME_WEAVE_OVERLAY
     // weave lexicon overlay (weave-ime Docs/plans/phase-4.5-lexicon.md). Loads the layer files
@@ -857,6 +864,7 @@ private:
     // token -> (reading, adjustment); only multi-character tokens with a listed reading.
     std::unordered_map<TokenID, std::vector<std::pair<std::string, float_t>>> word_prior_;
     std::size_t word_prior_size_ = 0;
+    bool word_prior_corrected_ = false;  // SetWordPriorOnCorrected
 #endif
     // TokenizeContext's Cutter, built on first use.
     mutable std::once_flag cutter_once_;
