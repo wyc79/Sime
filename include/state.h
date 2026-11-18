@@ -1,4 +1,4 @@
-// Modified by the weave-ime project (2026): adds SIME_WEAVE_BEAM_EXACT (exact column eviction), SIME_WEAVE_COLUMN_BEAM_SIZE (column state cap, default 48) and the SIME_WEAVE_BEAM_CHECK invariant check; weave default BEAM_EXACT=1; State keeps the edge's flags (backtrace_flags, additive, no macro) (see NOTICE.weave.md); adds State::kEdgeFuzzy (SIME_WEAVE_FUZZY); adds State::kEdgeDup (SIME_WEAVE_DUP_EDGE) and State::kEdgeUeAlias (SIME_WEAVE_UE_ALIAS); adds State::kEdgeNeighbour (SIME_WEAVE_NEIGHBOUR_EDGE, experiment); adds State::kEdgeEnTypo (SIME_WEAVE_EN_TYPO, experiment); backtrace_flags widened to 16 bits (same padding, sizeof(State) unchanged) for State::kEdgeExtra (SIME_WEAVE_EXTRA_EDGE, experiment).
+// Modified by the weave-ime project (2026): adds SIME_WEAVE_BEAM_EXACT (exact column eviction), SIME_WEAVE_COLUMN_BEAM_SIZE (column state cap, default 48) and the SIME_WEAVE_BEAM_CHECK invariant check; weave default BEAM_EXACT=1; State keeps the edge's flags (backtrace_flags, additive, no macro) (see NOTICE.weave.md); adds State::kEdgeFuzzy (SIME_WEAVE_FUZZY); adds State::kEdgeDup (SIME_WEAVE_DUP_EDGE) and State::kEdgeUeAlias (SIME_WEAVE_UE_ALIAS); adds State::kEdgeNeighbour (SIME_WEAVE_NEIGHBOUR_EDGE, experiment); adds State::kEdgeEnTypo (SIME_WEAVE_EN_TYPO, experiment); backtrace_flags widened to 16 bits (same padding, sizeof(State) unchanged) for State::kEdgeExtra (SIME_WEAVE_EXTRA_EDGE, experiment). Adds SIME_WEAVE_TAIL_BEAM_SIZE (NetStates::SetMaxColumn, the last column's cap; weave-ime Phase 5 Task 21, default 0).
 #pragma once
 
 #include "common.h"
@@ -26,6 +26,16 @@
 // cap across all LM-state buckets). Default 48 = upstream.
 #ifndef SIME_WEAVE_COLUMN_BEAM_SIZE
 #define SIME_WEAVE_COLUMN_BEAM_SIZE 48
+#endif
+// SIME_WEAVE_TAIL_BEAM_SIZE (weave-ime Phase 5 Task 21, the p5u5 freeze): with N > 0 the
+// sentence decoder's last column (the end of the input) keeps N states per LM-state bucket
+// and max(N, SIME_WEAVE_COLUMN_BEAM_SIZE) in all (NetStates::SetMaxColumn), and its N-best
+// scan reads the first N, so up to N whole readings come out instead of
+// SIME_WEAVE_BEAM_SIZE. Full and incremental decodes both (src/sime.cc). Every other column,
+// and DecodeStr, the T9 path and GetTokens, are unchanged. 0 (the default) = upstream: the
+// last column is capped like the others. N must be 0 or at least SIME_WEAVE_BEAM_SIZE.
+#ifndef SIME_WEAVE_TAIL_BEAM_SIZE
+#define SIME_WEAVE_TAIL_BEAM_SIZE 0
 #endif
 // SIME_WEAVE_BEAM_CHECK=1 (debug builds only; needs SIME_WEAVE_BEAM_EXACT=1):
 // Insert aborts when BeamInvariantHolds() fails after it.
@@ -110,6 +120,11 @@ public:
     NetStates();
 
     void SetMaxTop(std::size_t max_top) { max_top_ = max_top; }
+#if SIME_WEAVE_TAIL_BEAM_SIZE
+    // The column's state cap across all buckets (default SIME_WEAVE_COLUMN_BEAM_SIZE); the
+    // sentence decoder raises it for the last column only.
+    void SetMaxColumn(std::size_t max_column) { max_column_ = max_column; }
+#endif
     void Clear();
     void Insert(const State& state);
 
@@ -156,6 +171,9 @@ private:
 
 private:
     static constexpr std::size_t BeamSize = SIME_WEAVE_COLUMN_BEAM_SIZE;
+#if SIME_WEAVE_TAIL_BEAM_SIZE
+    std::size_t max_column_ = BeamSize;
+#endif
 
     PosMap pos_map_;
     std::size_t state_size_ = 0;

@@ -1,4 +1,4 @@
-// Modified by the weave-ime project (2026): NetStates::Insert gains SIME_WEAVE_BEAM_EXACT (bucket keys and state count kept exact, so eviction removes the globally worst state), SIME_WEAVE_BEAM_CHECK and BeamInvariantHolds(); State keeps the edge's flags (backtrace_flags, additive, no macro; 16 bits since SIME_WEAVE_EXTRA_EDGE).
+// Modified by the weave-ime project (2026): NetStates::Insert gains SIME_WEAVE_BEAM_EXACT (bucket keys and state count kept exact, so eviction removes the globally worst state), SIME_WEAVE_BEAM_CHECK and BeamInvariantHolds(); State keeps the edge's flags (backtrace_flags, additive, no macro; 16 bits since SIME_WEAVE_EXTRA_EDGE). NetStates evicts above max_column_ under SIME_WEAVE_TAIL_BEAM_SIZE (the last column's cap; weave-ime Phase 5 Task 21).
 #include "state.h"
 
 #include <algorithm>
@@ -114,7 +114,11 @@ void NetStates::Insert(const State& state) {
         ++state_size_;
     }
 
+#if SIME_WEAVE_TAIL_BEAM_SIZE
+    while (state_size_ > max_column_ && !top_score_.empty()) {
+#else
     while (state_size_ > BeamSize && !top_score_.empty()) {
+#endif
         TopStates* worst = top_score_.front().second;
         worst->Pop();
         if (worst->Size() == 0) {
@@ -148,7 +152,11 @@ bool NetStates::BeamInvariantHolds() const {
         if (it == pos_map_.end() || &it->second != b) return false;
         total += b->Size();
     }
+#if SIME_WEAVE_TAIL_BEAM_SIZE
+    return total == state_size_ && state_size_ <= max_column_;
+#else
     return total == state_size_ && state_size_ <= BeamSize;
+#endif
 }
 
 void NetStates::PushScoreHeap(float_t score, TopStates* bucket) {

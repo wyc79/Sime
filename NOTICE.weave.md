@@ -34,6 +34,7 @@ no longer behaves like upstream Sime**:
 | `SIME_WEAVE_EN_TYPO` (`include/sime.h`; experiment, local branch `weave-nb`) | 0 | 0 (no English slip edges) | with 1, English slip edges are compiled in; none are added until `SetEnTypoCost` gives a kind a cost of 0 or more |
 | `SIME_WEAVE_EXTRA_EDGE` (`include/sime.h`; p5u4 candidate) | 1 | 0 (no stray-key edges) | stray-key edges are compiled in; none are added until `SetExtraCost` gets a cost of 0 or more |
 | `SIME_WEAVE_WORD_PRIOR` (`include/sime.h`; weave-ime Phase 5 colloquial prior, local weave) | 0 | 0 (no word prior) | with 1, the word prior table is compiled in; nothing changes until `LoadWordPrior` gets a table |
+| `SIME_WEAVE_TAIL_BEAM_SIZE` (`include/state.h`; weave-ime Phase 5 Task 21, local weave) | 0 | 0 (the last column capped like the others) | with N > 0, the sentence decoder's last column keeps N states and up to N whole readings come out (see below) |
 
 **Swapped-letter edges (local branch `weave-unfreeze`, weave-ime Phase 5 unfreeze Task 2; default 1 since Task 4, was 0).**
 `SIME_WEAVE_SWAP_EDGE` (`include/sime.h`, default 1: compiled in, and no edge is added until `SetSwapCost` gets a cost of 0 or more): `Sime::AppendSwapEdges`, at the end of
@@ -157,6 +158,18 @@ snapshot. A line is `word<TAB>reading<TAB>adjustment` (UTF-8 without a BOM), the
 `from_chars` (C locale independent); an empty, `+`-signed, exponent, hex, non-finite or out-of-range adjustment, a BOM, a pair listed twice and a pair the dictionary does not hold as a multi-character
 pinyin item are refused at load, leaving the table empty. The table is an input, not part of Sime.
 Touches `include/sime.h`, `src/sime.cc`.
+
+**Last-column bucket (local weave, weave-ime Phase 5 Task 21, the p5u5 freeze; default 0).**
+`SIME_WEAVE_TAIL_BEAM_SIZE` (`include/state.h`, default 0 = off; N > 0 must be at least `SIME_WEAVE_BEAM_SIZE`): the sentence
+decoder's last column (the end of the input) keeps N states per LM-state bucket and max(N, `SIME_WEAVE_COLUMN_BEAM_SIZE`) in
+all (`NetStates::SetMaxColumn`), and Layer 1 of `SentenceResults` scans its first N states instead of `SIME_WEAVE_BEAM_SIZE`,
+so up to N whole-input readings come out (each request still takes at most 1 + extra of them). Every other column keeps its
+caps. The full decode (`DecodeSentenceUnlocked`) and the incremental one (`FullSnapshot`, `ResumeSnapshot`) set the same
+caps on the last column; `ResumeSnapshot` never reuses the previous input's last column as an inner column (its caps differ),
+so it resumes at most from that input's last letter column; the output still equals a full decode. With 0 the code is the
+code before the macro. It is the weave-ime recall checks' `RCHK_TAIL_SIZE` (an experiment patch, never in the fork) made a
+macro, so that weave-ime's `decoder_id` sees it. `DecodeStr`, `DecodeNumSentence`, the T9 path and `GetTokens` are not touched.
+Touches `include/state.h`, `src/state.cc`, `src/sime.cc`.
 
 **Dictionary.** `SIME_WEAVE_CASE_FOLD=1` looks every typed English span up
 by its lowercased spelling and, when the span has capitals, also as typed;

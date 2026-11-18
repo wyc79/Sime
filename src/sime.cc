@@ -1,4 +1,4 @@
-// Modified by the weave-ime project (2026): ComputeEdgePenalties gains the SIME_WEAVE_PENALTY_RULE scoped English penalty; English DAT lookups gain SIME_WEAVE_CASE_FOLD (folded and, for a span with capitals, as-typed lookups merged per folded key) and AbbreviatePieces matches letters ignoring case under it; InitNet gains the SIME_WEAVE_LITERAL_EDGE literal-letters edge (with SIME_WEAVE_LITERAL_PER_LETTER and SIME_WEAVE_LITERAL_NONPINYIN); NormalizeInput, InitNet and DecodeSentence gain SIME_WEAVE_SPACE_BOUNDARY and SIME_WEAVE_RAW_CNT; adds Sime::TokenizeContext (Cutter over the last N code points of committed text; additive, no macro); adds the SIME_WEAVE_OVERLAY lexicon overlay (overlay English edges at a bounded cost with a history break, display casing, dedup by key; default 1 since the Task 8c fork commit b605d07); adds the candidate-contract provenance (edge flags kept through State and Backtrace, DecodeResult::segments and ::basis from DecodeSentence; additive, no macro); DecodeSentence split into BuildSentenceNet / SentenceResults and Process into Relax, with segments filled only for emitted candidates (no output change); adds SIME_WEAVE_INCREMENTAL incremental decoding (snapshots per normalised prefix, Process resumed at the first changed column, generation counter, fallback; default 1 since Task 8c, runtime switch Sime::SetIncremental); adds the SIME_WEAVE_SWAP_EDGE swapped-letter edges (AppendSwapEdges at the end of BuildSentenceNet, sentence decoder only; default 1 since Task 4, was 0; a swap edge takes no learning adjustment); adds the SIME_WEAVE_READING_PRIOR rare-reading penalty table (LoadReadingPrior, ApplyReadingPrior after ComputeEdgePenalties in the sentence and word decoders, a `drop` line removes the edge; default 1 since Task 4, was 0); adds Sime::TextCost under SIME_WEAVE_RIGHT_CONTEXT (default 1 since weave-ime Phase 5 unfreeze 2, was 0); adds the SIME_WEAVE_FUZZY front/back-nasal fuzzy pinyin edges (AppendFuzzyEdges after AppendSwapEdges, per-pair runtime costs, no learning adjustment, Backtrace restores the swap and fuzzy flags, Segment::correction; default 1 since unfreeze 2, was 0); adds the SIME_WEAVE_DUP_EDGE doubled-letter edges (default 1 on the p5u3 candidate (local weave, 2026-11-15; was 0): AppendDupEdges after AppendFuzzyEdges, runtime cost, no learning adjustment, Backtrace restores the flag, Segment::correction 3); adds the SIME_WEAVE_UE_ALIAS lue/nue alias edges (default 1 on the p5u3 candidate (local weave, 2026-11-15; was 0): AppendUeAliasEdges after the overlay edges and before the swap edges, runtime cost, learns like an exact edge, Segment::correction 4); adds the SIME_WEAVE_NEIGHBOUR_EDGE QWERTY-neighbour substitution edges (default 1 on the p5u4 candidate (local weave, 2026-11-16; was 0): AppendNeighbourEdges after AppendDupEdges, runtime cost per (typed, intended) pair, no learning adjustment, Backtrace restores the flag, Segment::correction 5); adds the SIME_WEAVE_EN_TYPO English edit-1 spelling edges (experiment, local branch weave-nb, default 0: AppendEnTypoEdges after AppendNeighbourEdges, L0 and overlay English DATs, runtime cost per edit kind plus the span's English penalty, no learning adjustment, Backtrace restores the flag, Segment::correction 6); adds the SIME_WEAVE_EXTRA_EDGE stray-key edges (default 1 on the p5u4 candidate (local weave, 2026-11-16; was 0): AppendExtraEdges after AppendEnTypoEdges, one typed letter skipped at a cost for a QWERTY neighbour of the letter before or after and another for any other letter, no learning adjustment, Backtrace restores the flag (State flags 16 bits), Segment::correction 7); adds the SIME_WEAVE_WORD_PRIOR word prior table (default 0: LoadWordPrior, ApplyWordPrior next to ApplyReadingPrior in the sentence and word decoders, exact edges only by default, and also the fuzzy, lue/nue alias, swap, doubled-letter, neighbour and stray-key edges after SetWordPriorOnCorrected(true); a signed adjustment on multi-character (word, reading) pairs); AppendFuzzyEdges gains the initial pairs z/zh, c/ch, s/sh, n/l, l/r, f/h, k/g and the finals ian/iang, uan/uang split from an/ang (weave-ime Phase 5 Task 13, each off until SetFuzzyCost).
+// Modified by the weave-ime project (2026): ComputeEdgePenalties gains the SIME_WEAVE_PENALTY_RULE scoped English penalty; English DAT lookups gain SIME_WEAVE_CASE_FOLD (folded and, for a span with capitals, as-typed lookups merged per folded key) and AbbreviatePieces matches letters ignoring case under it; InitNet gains the SIME_WEAVE_LITERAL_EDGE literal-letters edge (with SIME_WEAVE_LITERAL_PER_LETTER and SIME_WEAVE_LITERAL_NONPINYIN); NormalizeInput, InitNet and DecodeSentence gain SIME_WEAVE_SPACE_BOUNDARY and SIME_WEAVE_RAW_CNT; adds Sime::TokenizeContext (Cutter over the last N code points of committed text; additive, no macro); adds the SIME_WEAVE_OVERLAY lexicon overlay (overlay English edges at a bounded cost with a history break, display casing, dedup by key; default 1 since the Task 8c fork commit b605d07); adds the candidate-contract provenance (edge flags kept through State and Backtrace, DecodeResult::segments and ::basis from DecodeSentence; additive, no macro); DecodeSentence split into BuildSentenceNet / SentenceResults and Process into Relax, with segments filled only for emitted candidates (no output change); adds SIME_WEAVE_INCREMENTAL incremental decoding (snapshots per normalised prefix, Process resumed at the first changed column, generation counter, fallback; default 1 since Task 8c, runtime switch Sime::SetIncremental); adds the SIME_WEAVE_SWAP_EDGE swapped-letter edges (AppendSwapEdges at the end of BuildSentenceNet, sentence decoder only; default 1 since Task 4, was 0; a swap edge takes no learning adjustment); adds the SIME_WEAVE_READING_PRIOR rare-reading penalty table (LoadReadingPrior, ApplyReadingPrior after ComputeEdgePenalties in the sentence and word decoders, a `drop` line removes the edge; default 1 since Task 4, was 0); adds Sime::TextCost under SIME_WEAVE_RIGHT_CONTEXT (default 1 since weave-ime Phase 5 unfreeze 2, was 0); adds the SIME_WEAVE_FUZZY front/back-nasal fuzzy pinyin edges (AppendFuzzyEdges after AppendSwapEdges, per-pair runtime costs, no learning adjustment, Backtrace restores the swap and fuzzy flags, Segment::correction; default 1 since unfreeze 2, was 0); adds the SIME_WEAVE_DUP_EDGE doubled-letter edges (default 1 on the p5u3 candidate (local weave, 2026-11-15; was 0): AppendDupEdges after AppendFuzzyEdges, runtime cost, no learning adjustment, Backtrace restores the flag, Segment::correction 3); adds the SIME_WEAVE_UE_ALIAS lue/nue alias edges (default 1 on the p5u3 candidate (local weave, 2026-11-15; was 0): AppendUeAliasEdges after the overlay edges and before the swap edges, runtime cost, learns like an exact edge, Segment::correction 4); adds the SIME_WEAVE_NEIGHBOUR_EDGE QWERTY-neighbour substitution edges (default 1 on the p5u4 candidate (local weave, 2026-11-16; was 0): AppendNeighbourEdges after AppendDupEdges, runtime cost per (typed, intended) pair, no learning adjustment, Backtrace restores the flag, Segment::correction 5); adds the SIME_WEAVE_EN_TYPO English edit-1 spelling edges (experiment, local branch weave-nb, default 0: AppendEnTypoEdges after AppendNeighbourEdges, L0 and overlay English DATs, runtime cost per edit kind plus the span's English penalty, no learning adjustment, Backtrace restores the flag, Segment::correction 6); adds the SIME_WEAVE_EXTRA_EDGE stray-key edges (default 1 on the p5u4 candidate (local weave, 2026-11-16; was 0): AppendExtraEdges after AppendEnTypoEdges, one typed letter skipped at a cost for a QWERTY neighbour of the letter before or after and another for any other letter, no learning adjustment, Backtrace restores the flag (State flags 16 bits), Segment::correction 7); adds the SIME_WEAVE_WORD_PRIOR word prior table (default 0: LoadWordPrior, ApplyWordPrior next to ApplyReadingPrior in the sentence and word decoders, exact edges only by default, and also the fuzzy, lue/nue alias, swap, doubled-letter, neighbour and stray-key edges after SetWordPriorOnCorrected(true); a signed adjustment on multi-character (word, reading) pairs); AppendFuzzyEdges gains the initial pairs z/zh, c/ch, s/sh, n/l, l/r, f/h, k/g and the finals ian/iang, uan/uang split from an/ang (weave-ime Phase 5 Task 13, each off until SetFuzzyCost). Adds SIME_WEAVE_TAIL_BEAM_SIZE (default 0): the sentence decoder's last column keeps N states and its N-best scan reads N, in the full decode, FullSnapshot and ResumeSnapshot (which never reuses the old tail as an inner column) (weave-ime Phase 5 Task 21, the p5u5 freeze).
 #include "sime.h"
 
 #include "cut.h"
@@ -27,6 +27,16 @@ namespace sime {
 namespace {
 
 constexpr std::size_t kGruCandidates = 10;
+#if SIME_WEAVE_TAIL_BEAM_SIZE
+static_assert(SIME_WEAVE_TAIL_BEAM_SIZE >= SIME_WEAVE_BEAM_SIZE,
+              "SIME_WEAVE_TAIL_BEAM_SIZE must be 0 (off) or at least SIME_WEAVE_BEAM_SIZE");
+// SIME_WEAVE_TAIL_BEAM_SIZE: the sentence decoder's last column keeps N states per bucket and
+// max(N, the column cap) in all; the full decode, FullSnapshot and ResumeSnapshot all call this.
+void SetTailCaps(NetStates& tail) {
+    tail.SetMaxTop(SIME_WEAVE_TAIL_BEAM_SIZE);
+    tail.SetMaxColumn(std::max<std::size_t>(SIME_WEAVE_TAIL_BEAM_SIZE, SIME_WEAVE_COLUMN_BEAM_SIZE));
+}
+#endif
 constexpr float_t kGruPinyinScale = 0.60;
 constexpr float_t kGruT9Scale = 0.72;
 
@@ -3227,6 +3237,9 @@ std::vector<DecodeResult> Sime::DecodeSentenceUnlocked(
     BuildSentenceNet(lower, net);
 
     for (auto& col : net) col.states.SetMaxTop(BeamSize);
+#if SIME_WEAVE_TAIL_BEAM_SIZE
+    SetTailCaps(net.back().states);
+#endif
     State init = InitialState(context);
     net[0].states.Insert(init);
     Process(net);
@@ -3271,8 +3284,13 @@ std::vector<DecodeResult> Sime::SentenceResults(
     // weave-ime contract: segments are filled only for the emitted candidates (texts are unique
     // among the scanned ones, so each candidate keeps its path by text).
     {
+#if SIME_WEAVE_TAIL_BEAM_SIZE
+        const std::size_t scan =
+            std::min<std::size_t>(SIME_WEAVE_TAIL_BEAM_SIZE, tail.size());
+#else
         const std::size_t scan =
             std::min<std::size_t>(BeamSize, tail.size());
+#endif
         std::vector<DecodeResult> l1;
         l1.reserve(scan);
         std::unordered_set<std::string> l1_seen;
@@ -3550,6 +3568,9 @@ std::unique_ptr<Sime::Snapshot> Sime::FullSnapshot(const std::string& lower,
         snap->states[c] = std::make_shared<NetStates>();
         snap->states[c]->SetMaxTop(BeamSize);
     }
+#if SIME_WEAVE_TAIL_BEAM_SIZE
+    SetTailCaps(*snap->states.back());
+#endif
     snap->states[0]->Insert(InitialState(context));
     ProcessFrom(*snap, 0);
     return snap;
@@ -3632,6 +3653,11 @@ std::unique_ptr<Sime::Snapshot> Sime::ResumeSnapshot(const Snapshot& base, const
     // edges from the equal columns before it.
     std::size_t k = 0;
     while (k <= old_total && SameEdges(*base.edges[k], net[k].es)) ++k;
+#if SIME_WEAVE_TAIL_BEAM_SIZE
+    // The old tail (column old_total + 1) was capped as the last column; in the new lattice it is
+    // an inner column, capped like the others. So it is never reused: redo it from column old_total.
+    if (k > old_total) k = old_total;
+#endif
     if (inc_diag_) {
         for (std::size_t c = k; c < old_total; ++c)
             if (!SameEdges(*base.edges[c], net[c].es)) ClassifyColumn(*base.edges[c], net[c].es, old_total);
@@ -3655,6 +3681,9 @@ std::unique_ptr<Sime::Snapshot> Sime::ResumeSnapshot(const Snapshot& base, const
             snap->states[c]->SetMaxTop(BeamSize);
         }
     }
+#if SIME_WEAVE_TAIL_BEAM_SIZE
+    SetTailCaps(*snap->states.back());  // always a new column: k <= old_total < net.size() - 1
+#endif
     ProcessFrom(*snap, k);
     if (inc_diag_) {
         for (std::size_t c = k + 1; c < snap->states.size(); ++c)
