@@ -33,6 +33,7 @@ no longer behaves like upstream Sime**:
 | `SIME_WEAVE_NEIGHBOUR_EDGE` (`include/sime.h`; p5u4 candidate) | 1 | 0 (no neighbour edges) | QWERTY-neighbour edges are compiled in; none are added until `SetNeighbourCost` gets a cost of 0 or more |
 | `SIME_WEAVE_EN_TYPO` (`include/sime.h`; experiment, local branch `weave-nb`) | 0 | 0 (no English slip edges) | with 1, English slip edges are compiled in; none are added until `SetEnTypoCost` gives a kind a cost of 0 or more |
 | `SIME_WEAVE_EXTRA_EDGE` (`include/sime.h`; p5u4 candidate) | 1 | 0 (no stray-key edges) | stray-key edges are compiled in; none are added until `SetExtraCost` gets a cost of 0 or more |
+| `SIME_WEAVE_WORD_PRIOR` (`include/sime.h`; weave-ime Phase 5 colloquial prior, local weave) | 0 | 0 (no word prior) | with 1, the word prior table is compiled in; nothing changes until `LoadWordPrior` gets a table |
 
 **Swapped-letter edges (local branch `weave-unfreeze`, weave-ime Phase 5 unfreeze Task 2; default 1 since Task 4, was 0).**
 `SIME_WEAVE_SWAP_EDGE` (`include/sime.h`, default 1: compiled in, and no edge is added until `SetSwapCost` gets a cost of 0 or more): `Sime::AppendSwapEdges`, at the end of
@@ -124,6 +125,24 @@ the C locale does not matter) or `drop`; an empty penalty, a hex or out-of-range
 at load. `overlay.cc` reads the L2 Zipf column with `from_chars` for the same reason. The table is an input, not part of Sime: weave-ime keeps its table at
 `benchmarks/results/phase5/polyphone/reading_r.tsv`. **That table derives from the Unihan database (Unicode 18.0.0,
 Unicode License) and from Luna Pinyin (rime-luna-pinyin, LGPL-3.0)**, and `LUNA_LICENSE.txt` stays beside it.
+Touches `include/sime.h`, `src/sime.cc`.
+
+**Word prior table (local weave, weave-ime Phase 5 colloquial prior, Docs/plans/phase-5-colloquial-prior.md Layer 1; default 0).**
+`SIME_WEAVE_WORD_PRIOR` (`include/sime.h`, default 0; with 1, nothing changes until `LoadWordPrior` gets a table):
+`Sime::LoadWordPrior` reads a table of (word, reading, adjustment), and a multi-character pinyin word edge on a listed
+pair gets that signed adjustment added to its penalty (negative: a bonus). The sibling of the rare-reading table, which
+leaves multi-character words alone; a single-character word is refused. `ApplyWordPrior` runs next to `ApplyReadingPrior`
+(after `ComputeEdgePenalties`, before `PruneNode`) in the sentence decoder (`BuildSentenceNet`) and the word decoder
+(`DecodeStr`), so the pruning, the beam and the layer-2 word entries all see it; the corrected pinyin edges (swap, fuzzy,
+doubled letter, lue/nue alias, neighbour key, stray key) add the same adjustment where they are made, swap edges
+included (unlike the reading table). The key is the dictionary reading, so an abbreviation or completion of a listed
+word gets it too. English and overlay edges, `GetTokens`, `NextTokens` and the T9 path are not touched. Only a listed
+pair's penalty changes (an unlisted edge keeps its bits, which the incremental snapshots compare); `BuildSentenceNet`
+is shared by full and resumed decodes, and `LoadWordPrior` bumps the incremental generation, so a load drops every
+snapshot. A line is `word<TAB>reading<TAB>adjustment`, the reading as the dictionary stores it (`shi'shi`), the
+adjustment a plain decimal in [-1000, 1000] read with `from_chars` (C locale independent); an empty, hex, `+`-signed,
+non-finite or out-of-range adjustment, a pair listed twice and a pair the dictionary does not hold as a multi-character
+pinyin item are refused at load, leaving the table empty. The table is an input, not part of Sime.
 Touches `include/sime.h`, `src/sime.cc`.
 
 **Dictionary.** `SIME_WEAVE_CASE_FOLD=1` looks every typed English span up
