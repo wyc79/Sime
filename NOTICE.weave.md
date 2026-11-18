@@ -26,7 +26,7 @@ no longer behaves like upstream Sime**:
 | `SIME_WEAVE_LEARNING` (`include/user.h`; Phase 5 unfreeze Task 4) | 1 | 0 (no learning) | the learning store's knobs, strict file and merge are compiled in; with every knob at its default the model is unchanged |
 | `SIME_WEAVE_SWAP_EDGE` (`include/sime.h`; Phase 5 unfreeze Task 4) | 1 | 0 (no swap edges) | swapped-letter edges are compiled in; none are added until `SetSwapCost` gets a cost of 0 or more |
 | `SIME_WEAVE_READING_PRIOR` (`include/sime.h`; Phase 5 unfreeze Task 4) | 1 | 0 (no table) | the rare-reading table is compiled in; nothing changes until `LoadReadingPrior` gets a table |
-| `SIME_WEAVE_FUZZY` (`include/sime.h`; Phase 5 unfreeze 2) | 1 | 0 (no fuzzy edges) | front/back-nasal fuzzy edges are compiled in; none are added until `SetFuzzyCost` gives a pair a cost |
+| `SIME_WEAVE_FUZZY` (`include/sime.h`; Phase 5 unfreeze 2) | 1 | 0 (no fuzzy edges) | fuzzy pinyin edges (nasal finals; since Task 13 also initials and ian/iang, uan/uang) are compiled in; none are added until `SetFuzzyCost` gives a pair a cost |
 | `SIME_WEAVE_RIGHT_CONTEXT` (`include/sime.h`; Phase 5 unfreeze 2) | 1 | 0 (no `TextCost`) | `Sime::TextCost` is compiled in; nothing calls it but the host |
 | `SIME_WEAVE_DUP_EDGE` (`include/sime.h`; p5u3 candidate) | 1 | 0 (no doubled-letter edges) | doubled-letter edges are compiled in; none are added until `SetDupCost` gets a cost of 0 or more |
 | `SIME_WEAVE_UE_ALIAS` (`include/sime.h`; p5u3 candidate) | 1 | 0 (no lue/nue alias) | lue/nue alias edges are compiled in; none are added until `SetUeAliasCost` gets a cost of 0 or more |
@@ -59,6 +59,15 @@ or swap edge gets none. It pays a reading-prior line on its reading (swap edges 
 nor does the step after it (`State::kEdgeFuzzy`). Provenance: `Backtrace` restores the swap and fuzzy flags, and
 `Segment::correction` is 0 (as typed), 1 (swap) or 2 (fuzzy); the incremental self-check compares it. Exact edges are not
 changed or filtered; with every pair off the lattice is the one without the macro.
+*All pairs (weave-ime Phase 5 Task 13, 2026-11-17; runtime switches, each off until `SetFuzzyCost`).* `FuzzyPair` gains
+the initial pairs `kZZh`, `kCCh`, `kSSh` (the walk adds a stored h after a typed z/c/s that starts a stored syllable, or
+drops a typed h after one), `kNL`, `kLR`, `kFH`, `kKG` (a typed n/l/r/f/h/k/g that starts a stored syllable read as its
+partner; l has two), and the finals `kIanIang`, `kUanUang`: a nasal flip after a typed `a` whose syllable also holds the
+typed i or u before it (the trie state's depth) is priced by these, and `kAnAng` now covers only the other `a` finals
+(zhan, yan, wan, ...; before Task 13 it covered ian and uan too). The same edge kind, limits (`SetFuzzyLimits`), first-wins
+dedup, reading-prior line, word-prior rule (exact edges only unless `SetWordPriorOnCorrected(true)`), no learning
+adjustment and `Segment::correction` 2. With only the pre-Task-13 pairs priced (en/eng, in/ing) the walk and its edges are
+unchanged (an `a` after a typed i or u is split by syllable only there).
 
 **Doubled-letter edges (local branch `weave-dup`, weave-ime Phase 5 owner feedback of 2026-11-15; default 1 on the p5u3 candidate, was 0).**
 `SIME_WEAVE_DUP_EDGE` (`include/sime.h`, default 1: compiled in, and no edge is added until `SetDupCost` gets a cost; needs `SIME_WEAVE_FUZZY`): `Sime::AppendDupEdges`,

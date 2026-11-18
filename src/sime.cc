@@ -1,4 +1,4 @@
-// Modified by the weave-ime project (2026): ComputeEdgePenalties gains the SIME_WEAVE_PENALTY_RULE scoped English penalty; English DAT lookups gain SIME_WEAVE_CASE_FOLD (folded and, for a span with capitals, as-typed lookups merged per folded key) and AbbreviatePieces matches letters ignoring case under it; InitNet gains the SIME_WEAVE_LITERAL_EDGE literal-letters edge (with SIME_WEAVE_LITERAL_PER_LETTER and SIME_WEAVE_LITERAL_NONPINYIN); NormalizeInput, InitNet and DecodeSentence gain SIME_WEAVE_SPACE_BOUNDARY and SIME_WEAVE_RAW_CNT; adds Sime::TokenizeContext (Cutter over the last N code points of committed text; additive, no macro); adds the SIME_WEAVE_OVERLAY lexicon overlay (overlay English edges at a bounded cost with a history break, display casing, dedup by key; default 1 since the Task 8c fork commit b605d07); adds the candidate-contract provenance (edge flags kept through State and Backtrace, DecodeResult::segments and ::basis from DecodeSentence; additive, no macro); DecodeSentence split into BuildSentenceNet / SentenceResults and Process into Relax, with segments filled only for emitted candidates (no output change); adds SIME_WEAVE_INCREMENTAL incremental decoding (snapshots per normalised prefix, Process resumed at the first changed column, generation counter, fallback; default 1 since Task 8c, runtime switch Sime::SetIncremental); adds the SIME_WEAVE_SWAP_EDGE swapped-letter edges (AppendSwapEdges at the end of BuildSentenceNet, sentence decoder only; default 1 since Task 4, was 0; a swap edge takes no learning adjustment); adds the SIME_WEAVE_READING_PRIOR rare-reading penalty table (LoadReadingPrior, ApplyReadingPrior after ComputeEdgePenalties in the sentence and word decoders, a `drop` line removes the edge; default 1 since Task 4, was 0); adds Sime::TextCost under SIME_WEAVE_RIGHT_CONTEXT (default 1 since weave-ime Phase 5 unfreeze 2, was 0); adds the SIME_WEAVE_FUZZY front/back-nasal fuzzy pinyin edges (AppendFuzzyEdges after AppendSwapEdges, per-pair runtime costs, no learning adjustment, Backtrace restores the swap and fuzzy flags, Segment::correction; default 1 since unfreeze 2, was 0); adds the SIME_WEAVE_DUP_EDGE doubled-letter edges (default 1 on the p5u3 candidate (local weave, 2026-11-15; was 0): AppendDupEdges after AppendFuzzyEdges, runtime cost, no learning adjustment, Backtrace restores the flag, Segment::correction 3); adds the SIME_WEAVE_UE_ALIAS lue/nue alias edges (default 1 on the p5u3 candidate (local weave, 2026-11-15; was 0): AppendUeAliasEdges after the overlay edges and before the swap edges, runtime cost, learns like an exact edge, Segment::correction 4); adds the SIME_WEAVE_NEIGHBOUR_EDGE QWERTY-neighbour substitution edges (default 1 on the p5u4 candidate (local weave, 2026-11-16; was 0): AppendNeighbourEdges after AppendDupEdges, runtime cost per (typed, intended) pair, no learning adjustment, Backtrace restores the flag, Segment::correction 5); adds the SIME_WEAVE_EN_TYPO English edit-1 spelling edges (experiment, local branch weave-nb, default 0: AppendEnTypoEdges after AppendNeighbourEdges, L0 and overlay English DATs, runtime cost per edit kind plus the span's English penalty, no learning adjustment, Backtrace restores the flag, Segment::correction 6); adds the SIME_WEAVE_EXTRA_EDGE stray-key edges (default 1 on the p5u4 candidate (local weave, 2026-11-16; was 0): AppendExtraEdges after AppendEnTypoEdges, one typed letter skipped at a cost for a QWERTY neighbour of the letter before or after and another for any other letter, no learning adjustment, Backtrace restores the flag (State flags 16 bits), Segment::correction 7); adds the SIME_WEAVE_WORD_PRIOR word prior table (default 0: LoadWordPrior, ApplyWordPrior next to ApplyReadingPrior in the sentence and word decoders, exact edges only by default, and also the fuzzy, lue/nue alias, swap, doubled-letter, neighbour and stray-key edges after SetWordPriorOnCorrected(true); a signed adjustment on multi-character (word, reading) pairs).
+// Modified by the weave-ime project (2026): ComputeEdgePenalties gains the SIME_WEAVE_PENALTY_RULE scoped English penalty; English DAT lookups gain SIME_WEAVE_CASE_FOLD (folded and, for a span with capitals, as-typed lookups merged per folded key) and AbbreviatePieces matches letters ignoring case under it; InitNet gains the SIME_WEAVE_LITERAL_EDGE literal-letters edge (with SIME_WEAVE_LITERAL_PER_LETTER and SIME_WEAVE_LITERAL_NONPINYIN); NormalizeInput, InitNet and DecodeSentence gain SIME_WEAVE_SPACE_BOUNDARY and SIME_WEAVE_RAW_CNT; adds Sime::TokenizeContext (Cutter over the last N code points of committed text; additive, no macro); adds the SIME_WEAVE_OVERLAY lexicon overlay (overlay English edges at a bounded cost with a history break, display casing, dedup by key; default 1 since the Task 8c fork commit b605d07); adds the candidate-contract provenance (edge flags kept through State and Backtrace, DecodeResult::segments and ::basis from DecodeSentence; additive, no macro); DecodeSentence split into BuildSentenceNet / SentenceResults and Process into Relax, with segments filled only for emitted candidates (no output change); adds SIME_WEAVE_INCREMENTAL incremental decoding (snapshots per normalised prefix, Process resumed at the first changed column, generation counter, fallback; default 1 since Task 8c, runtime switch Sime::SetIncremental); adds the SIME_WEAVE_SWAP_EDGE swapped-letter edges (AppendSwapEdges at the end of BuildSentenceNet, sentence decoder only; default 1 since Task 4, was 0; a swap edge takes no learning adjustment); adds the SIME_WEAVE_READING_PRIOR rare-reading penalty table (LoadReadingPrior, ApplyReadingPrior after ComputeEdgePenalties in the sentence and word decoders, a `drop` line removes the edge; default 1 since Task 4, was 0); adds Sime::TextCost under SIME_WEAVE_RIGHT_CONTEXT (default 1 since weave-ime Phase 5 unfreeze 2, was 0); adds the SIME_WEAVE_FUZZY front/back-nasal fuzzy pinyin edges (AppendFuzzyEdges after AppendSwapEdges, per-pair runtime costs, no learning adjustment, Backtrace restores the swap and fuzzy flags, Segment::correction; default 1 since unfreeze 2, was 0); adds the SIME_WEAVE_DUP_EDGE doubled-letter edges (default 1 on the p5u3 candidate (local weave, 2026-11-15; was 0): AppendDupEdges after AppendFuzzyEdges, runtime cost, no learning adjustment, Backtrace restores the flag, Segment::correction 3); adds the SIME_WEAVE_UE_ALIAS lue/nue alias edges (default 1 on the p5u3 candidate (local weave, 2026-11-15; was 0): AppendUeAliasEdges after the overlay edges and before the swap edges, runtime cost, learns like an exact edge, Segment::correction 4); adds the SIME_WEAVE_NEIGHBOUR_EDGE QWERTY-neighbour substitution edges (default 1 on the p5u4 candidate (local weave, 2026-11-16; was 0): AppendNeighbourEdges after AppendDupEdges, runtime cost per (typed, intended) pair, no learning adjustment, Backtrace restores the flag, Segment::correction 5); adds the SIME_WEAVE_EN_TYPO English edit-1 spelling edges (experiment, local branch weave-nb, default 0: AppendEnTypoEdges after AppendNeighbourEdges, L0 and overlay English DATs, runtime cost per edit kind plus the span's English penalty, no learning adjustment, Backtrace restores the flag, Segment::correction 6); adds the SIME_WEAVE_EXTRA_EDGE stray-key edges (default 1 on the p5u4 candidate (local weave, 2026-11-16; was 0): AppendExtraEdges after AppendEnTypoEdges, one typed letter skipped at a cost for a QWERTY neighbour of the letter before or after and another for any other letter, no learning adjustment, Backtrace restores the flag (State flags 16 bits), Segment::correction 7); adds the SIME_WEAVE_WORD_PRIOR word prior table (default 0: LoadWordPrior, ApplyWordPrior next to ApplyReadingPrior in the sentence and word decoders, exact edges only by default, and also the fuzzy, lue/nue alias, swap, doubled-letter, neighbour and stray-key edges after SetWordPriorOnCorrected(true); a signed adjustment on multi-character (word, reading) pairs); AppendFuzzyEdges gains the initial pairs z/zh, c/ch, s/sh, n/l, l/r, f/h, k/g and the finals ian/iang, uan/uang split from an/ang (weave-ime Phase 5 Task 13, each off until SetFuzzyCost).
 #include "sime.h"
 
 #include "cut.h"
@@ -2458,13 +2458,18 @@ void Sime::SetFuzzyLimits(std::size_t min_span, std::size_t max_flips) {
 }
 
 // For each column, the walk follows the typed letters through the pinyin trie (stored letters only, no abbreviation,
-// no swapped letters) and, at a nasal final, branches once per flip:
+// no swapped letters) and branches once per flip:
 //   missing g: typed a/e/i + n, the branch reads n then a stored g inside the same syllable (an -> ang);
 //   extra g:   typed a/e/i + n + g, the branch drops the typed g where the stored syllable ends after the n, and the
-//              next typed letter must start a new stored syllable (ang -> an).
-// The vowel before the n names the pair: a an/ang (ian, uan included), e en/eng, i in/ing. Every word that ends after a
-// flip is an edge over the typed span at the pair's cost per flip (plus a reading-prior line on it), unless an exact,
-// overlay or swap edge already holds the same token over the same span.
+//              next typed letter must start a new stored syllable (ang -> an);
+//   (Task 13) missing h: typed z/c/s as a syllable's first letter, the branch reads it then a stored h (z -> zh);
+//   (Task 13) extra h:   typed z/c/s + h, the z/c/s a syllable's first letter, the branch drops the typed h (zh -> z);
+//   (Task 13) initial:   a typed n/l/r/f/h/k/g as a syllable's first letter, the branch reads its partner instead
+//                        (n/l, l/r, f/h, k/g; l has two partners).
+// The vowel before the n names the final pair: e en/eng, i in/ing, a an/ang, except that an a after a typed i or u of the
+// same stored syllable (the state's depth says so) is ian/iang or uan/uang (Task 13). Every word that ends after a flip
+// is an edge over the typed span at the pair's cost per flip (plus a reading-prior line on it), unless an exact, overlay
+// or swap edge already holds the same token over the same span, or an earlier flip of this walk did (the first wins).
 void Sime::AppendFuzzyEdges(std::vector<Node>& net, std::string_view input) const {
     using States = std::vector<trie::DoubleArray::PinyinState>;
     bool any = false;
@@ -2473,14 +2478,47 @@ void Sime::AppendFuzzyEdges(std::vector<Node>& net, std::string_view input) cons
     const auto& dat = dict_.Dat(Dict::LetterPinyin);
     const std::size_t total = input.size();
     std::size_t added = 0, steps = 0;
-    auto pair_cost = [&](char v) -> float_t {
+    auto cost_of = [&](FuzzyPair p) { return fuzzy_cost_[static_cast<std::size_t>(p)]; };
+    // The final pair of a nasal flip: v the vowel before the n, w the typed letter before v, inner whether the state's
+    // syllable holds w (depth of the vowel >= 2; always true when not split).
+    auto final_pair = [&](char v, char w, bool inner) -> float_t {
         switch (v) {
-            case 'a': return fuzzy_cost_[static_cast<std::size_t>(FuzzyPair::kAnAng)];
-            case 'e': return fuzzy_cost_[static_cast<std::size_t>(FuzzyPair::kEnEng)];
-            case 'i': return fuzzy_cost_[static_cast<std::size_t>(FuzzyPair::kInIng)];
+            case 'a':
+                if (inner && w == 'i') return cost_of(FuzzyPair::kIanIang);
+                if (inner && w == 'u') return cost_of(FuzzyPair::kUanUang);
+                return cost_of(FuzzyPair::kAnAng);
+            case 'e': return cost_of(FuzzyPair::kEnEng);
+            case 'i': return cost_of(FuzzyPair::kInIng);
             default: return -1;
         }
     };
+    // Only an a after a typed i or u can be ian/uan: those states are split by syllable (the others take one branch,
+    // the pre-Task-13 walk).
+    auto split_a = [](char v, char w) { return v == 'a' && (w == 'i' || w == 'u'); };
+    auto h_cost = [&](char c) -> float_t {
+        switch (c) {
+            case 'z': return cost_of(FuzzyPair::kZZh);
+            case 'c': return cost_of(FuzzyPair::kCCh);
+            case 's': return cost_of(FuzzyPair::kSSh);
+            default: return -1;
+        }
+    };
+    struct Partner { char to; FuzzyPair pair; };
+    auto partners = [](char c, Partner out[2]) -> int {
+        switch (c) {
+            case 'n': out[0] = {'l', FuzzyPair::kNL}; return 1;
+            case 'l': out[0] = {'n', FuzzyPair::kNL}; out[1] = {'r', FuzzyPair::kLR}; return 2;
+            case 'r': out[0] = {'l', FuzzyPair::kLR}; return 1;
+            case 'f': out[0] = {'h', FuzzyPair::kFH}; return 1;
+            case 'h': out[0] = {'f', FuzzyPair::kFH}; return 1;
+            case 'k': out[0] = {'g', FuzzyPair::kKG}; return 1;
+            case 'g': out[0] = {'k', FuzzyPair::kKG}; return 1;
+            default: return 0;
+        }
+    };
+    const bool initials = cost_of(FuzzyPair::kZZh) >= 0 || cost_of(FuzzyPair::kCCh) >= 0 || cost_of(FuzzyPair::kSSh) >= 0 ||
+                          cost_of(FuzzyPair::kNL) >= 0 || cost_of(FuzzyPair::kLR) >= 0 || cost_of(FuzzyPair::kFH) >= 0 ||
+                          cost_of(FuzzyPair::kKG) >= 0;
     auto step = [&](States& st, char ch) {
         dat.AdvancePinyinStates(st, static_cast<uint8_t>(ch));
         std::erase_if(st, [](const auto& x) { return x.fuzzy; });
@@ -2523,11 +2561,17 @@ void Sime::AppendFuzzyEdges(std::vector<Node>& net, std::string_view input) cons
                 if (flips) record(st, p, cost);
                 for (std::size_t q = p; q < total && !st.empty(); ++q) {
                     if (flips < fuzzy_max_flips_) {
-                        // missing g at the typed n of q
+                        // missing g at the typed n of q; st holds the states after the typed vowel at q - 1, split by
+                        // whether their syllable holds the letter before it (ian/uan against an)
                         if (input[q] == 'n' && q > s) {
-                            const float_t c = pair_cost(input[q - 1]);
-                            if (c >= 0) {
+                            const char w = q >= s + 2 ? input[q - 2] : 0;
+                            const bool split = split_a(input[q - 1], w);
+                            for (int inner = split ? 0 : 1; inner < 2; ++inner) {
+                                const float_t c = final_pair(input[q - 1], w, inner);
+                                if (c < 0) continue;
                                 States b = st;
+                                if (split) keep(b, [&](const auto& x) { return (x.depth >= 2) == (inner == 1); });
+                                if (b.empty()) continue;
                                 step(b, 'n');
                                 keep(b, [](const auto& x) { return x.depth >= 2; });
                                 step(b, 'g');
@@ -2535,13 +2579,49 @@ void Sime::AppendFuzzyEdges(std::vector<Node>& net, std::string_view input) cons
                                 if (!b.empty()) walk(std::move(b), q + 1, cost + c, flips + 1, false);
                             }
                         }
-                        // extra g: the typed g of q dropped after a typed vowel + n
+                        // extra g: the typed g of q dropped after a typed vowel + n; st holds the states after that n
                         if (input[q] == 'g' && q >= s + 2 && input[q - 1] == 'n') {
-                            const float_t c = pair_cost(input[q - 2]);
-                            if (c >= 0) {
+                            const char w = q >= s + 3 ? input[q - 3] : 0;
+                            const bool split = split_a(input[q - 2], w);
+                            for (int inner = split ? 0 : 1; inner < 2; ++inner) {
+                                const float_t c = final_pair(input[q - 2], w, inner);
+                                if (c < 0) continue;
                                 States b = st;
-                                keep(b, [](const auto& x) { return x.depth >= 2; });
+                                keep(b, [&](const auto& x) { return x.depth >= 2 && (!split || (x.depth >= 3) == (inner == 1)); });
                                 if (!b.empty()) walk(std::move(b), q + 1, cost + c, flips + 1, true);
+                            }
+                        }
+                        if (initials) {
+                            const char ch = input[q];
+                            // missing h: the typed z/c/s of q starts a stored syllable that goes on with an h
+                            if (const float_t c = h_cost(ch); c >= 0 && (q + 1 >= total || input[q + 1] != 'h')) {
+                                States b = st;
+                                step(b, ch);
+                                keep(b, [](const auto& x) { return x.depth == 1; });
+                                if (!b.empty()) {
+                                    step(b, 'h');
+                                    keep(b, [](const auto& x) { return x.depth == 2; });
+                                }
+                                if (!b.empty()) walk(std::move(b), q + 1, cost + c, flips + 1, false);
+                            }
+                            // extra h: the typed h of q dropped after a typed z/c/s that starts a stored syllable; st
+                            // holds the states after that z/c/s
+                            if (ch == 'h' && q > s) {
+                                if (const float_t c = h_cost(input[q - 1]); c >= 0) {
+                                    States b = st;
+                                    keep(b, [](const auto& x) { return x.depth == 1; });
+                                    if (!b.empty()) walk(std::move(b), q + 1, cost + c, flips + 1, false);
+                                }
+                            }
+                            // initial: the typed letter of q read as its partner where it starts a stored syllable
+                            Partner ps[2];
+                            for (int k = 0, n = partners(ch, ps); k < n; ++k) {
+                                const float_t c = cost_of(ps[k].pair);
+                                if (c < 0) continue;
+                                States b = st;
+                                step(b, ps[k].to);
+                                keep(b, [](const auto& x) { return x.depth == 1; });
+                                if (!b.empty()) walk(std::move(b), q + 1, cost + c, flips + 1, false);
                             }
                         }
                     }
